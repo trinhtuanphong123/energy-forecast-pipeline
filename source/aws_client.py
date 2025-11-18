@@ -1,18 +1,23 @@
-# File: src/aws_client.py
+# File: source/aws_client.py
 
 import boto3
-from botocore.exceptions import ClientError # Cần thiết cho hàm check_if_file_exists
+from botocore.exceptions import ClientError
 from source.config import AWS_KEY, AWS_SECRET, AWS_REGION, S3_BUCKET
 
-# Khởi tạo session với AWS bằng IAM User credentials
-session = boto3.Session(
-    aws_access_key_id=AWS_KEY,
-    aws_secret_access_key=AWS_SECRET,
-    region_name=AWS_REGION
-)
-
-# Tạo một client S3 từ session
-s3_client = session.client("s3")
+# Khởi tạo S3 client
+# Nếu có AWS_KEY và AWS_SECRET trong .env → dùng chúng
+# Nếu không → boto3 tự động dùng IAM Role (trên EC2)
+if AWS_KEY and AWS_SECRET:
+    print("Initializing S3 client with explicit credentials...")
+    session = boto3.Session(
+        aws_access_key_id=AWS_KEY,
+        aws_secret_access_key=AWS_SECRET,
+        region_name=AWS_REGION
+    )
+    s3_client = session.client("s3")
+else:
+    print("Initializing S3 client with IAM Role...")
+    s3_client = boto3.client("s3", region_name=AWS_REGION)
 
 def upload_file_to_s3(file_path, s3_key):
     """
@@ -20,10 +25,10 @@ def upload_file_to_s3(file_path, s3_key):
     """
     try:
         s3_client.upload_file(file_path, S3_BUCKET, s3_key)
-        # Giảm bớt log, script gọi hàm này sẽ tự in ra
-        # print(f"Tải thành công: {file_path} -> s3://{S3_BUCKET}/{s3_key}")
+        print(f"✓ Uploaded: {s3_key}")
     except Exception as e:
-        print(f"LỖI khi tải file {file_path} lên {s3_key}: {e}")
+        print(f"✗ LỖI khi tải file {file_path} lên {s3_key}: {e}")
+        raise
 
 def list_s3_objects(prefix):
     """
@@ -38,22 +43,18 @@ def list_s3_objects(prefix):
 
 def check_if_file_exists(s3_key):
     """
-    Kiểm tra xem file đã tồn tại trên S3 chưa bằng cách gọi head_object.
-    Rất nhanh và không tốn chi phí download.
+    Kiểm tra xem file đã tồn tại trên S3 chưa.
     Trả về True nếu tồn tại, False nếu không.
     """
     try:
         s3_client.head_object(Bucket=S3_BUCKET, Key=s3_key)
         return True
     except ClientError as e:
-        # Nếu lỗi là "404 Not Found", file không tồn tại
         if e.response['Error']['Code'] == '404':
             return False
-        # Lỗi khác (ví dụ: 403 Forbidden)
         else:
-            print(f"LỖI (head_object) khi kiểm tra {s3_key}: {e}")
-            return False # Giả định là không tồn tại nếu có lỗi
+            print(f"LỖI khi kiểm tra {s3_key}: {e}")
+            return False
     except Exception as e:
-        print(f"LỖI (check_if_file_exists) khi kiểm tra {s3_key}: {e}")
+        print(f"LỖI không xác định khi kiểm tra {s3_key}: {e}")
         return False
-
