@@ -100,12 +100,12 @@ jobs:
           echo "ℹ️ Note: Task Definition đã được cập nhật."
           echo "   EventBridge Schedule sẽ tự động dùng version mới nhất."
       
-      # ============ OPTIONAL: Trigger Manual Run ============
+      # ư============ OPTIONAL: Trigger Manual Run ============
       # Uncomment nếu muốn test ngay sau khi deploy
-      # - name: 🚀 Trigger test run (Optional)
-      #   run: |
-      #     aws ecs run-task \
-      #       --cluster $ECS_CLUSTER \
-      #       --launch-type FARGATE \
-      #       --task-definition $ECS_TASK_DEFINITION \
-      #       --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.SUBNET_ID }}],securityGroups=[${{ secrets.SECURITY_GROUP_ID }}],assignPublicIp=ENABLED}"
+      - name: 🚀 Trigger test run (Optional)
+         run: |
+           aws ecs run-task \
+             --cluster $ECS_CLUSTER \
+             --launch-type FARGATE \
+             --task-definition $ECS_TASK_DEFINITION \
+             --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.SUBNET_ID }}],securityGroups=[${{ secrets.SECURITY_GROUP_ID }}],assignPublicIp=ENABLED}"
