@@ -1,0 +1,9 @@
+# Core dependencies
+requests==2.31.0
+boto3==1.34.51
+
+# For better performance (optional)
+urllib3==2.2.0
+
+# For date/time handling
+python-dateutil==2.8.2
