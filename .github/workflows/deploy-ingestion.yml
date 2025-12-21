@@ -10,7 +10,7 @@ on:
   workflow_dispatch:  # Cho phép chạy thủ công
 
 env:
-  AWS_REGION: ap-southeast-1
+  AWS_REGION: ap-southeast-2
   ECR_REPOSITORY: vietnam-energy-ingestion
   ECS_CLUSTER: vietnam-energy-cluster
   ECS_TASK_DEFINITION: vietnam-energy-ingestion-task
@@ -103,7 +103,7 @@ jobs:
       # ư============ OPTIONAL: Trigger Manual Run ============
       # Uncomment nếu muốn test ngay sau khi deploy
       - name: 🚀 Trigger test run (Optional)
-         run: |
+        run: |
            aws ecs run-task \
              --cluster $ECS_CLUSTER \
              --launch-type FARGATE \
