@@ -1,5 +1,7 @@
 # File: scripts/1_backfill_weather_api.py
-
+import os
+import sys 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import requests
 import json
