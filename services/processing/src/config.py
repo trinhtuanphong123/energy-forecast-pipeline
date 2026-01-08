@@ -1,6 +1,6 @@
 """
 config.py
-⚙️ Configuration Management cho Service Processing
+⚙️ Configuration Management cho Service Processing (Refactored)
 """
 import os
 from datetime import datetime, timedelta
@@ -10,8 +10,6 @@ class Config:
     """Centralized configuration for Processing Service"""
     
     # ============ MODE CONFIGURATION ============
-    # BACKFILL: Xử lý tất cả dữ liệu từ 2021 đến nay
-    # DAILY: Chỉ xử lý dữ liệu hôm qua
     MODE: Literal["BACKFILL", "DAILY"] = os.getenv("MODE", "DAILY")
     
     # ============ S3 CONFIGURATION ============
@@ -23,27 +21,19 @@ class Config:
     GOLD_PREFIX = "gold"
     
     # ============ DATA SOURCE PATHS ============
-    # Weather Bronze path
-    WEATHER_BRONZE_PATH = f"{BRONZE_PREFIX}/weather"  # ✅ THÊM DẤU PHẨY
-    
-    # Electricity Bronze base path
-    ELECTRICITY_BRONZE_PATH = f"{BRONZE_PREFIX}/electricity"
-
-    # Electricity signals
-    ELECTRICITY_SIGNALS = [
-        "carbon_intensity",
-        "total_load",
-        "price_day_ahead",
-        "electricity_mix",
-        "electricity_flows"
-    ]
-
-    # Silver paths (cleaned data)
+    # Weather paths
+    WEATHER_BRONZE_PATH = f"{BRONZE_PREFIX}/weather"
     WEATHER_SILVER_PATH = f"{SILVER_PREFIX}/weather"
+    
+    # Electricity paths (chỉ quan tâm total_load)
+    ELECTRICITY_BRONZE_PATH = f"{BRONZE_PREFIX}/electricity"
     ELECTRICITY_SILVER_PATH = f"{SILVER_PREFIX}/electricity"
     
-    # Gold path (merged & featured data)
-    GOLD_PATH = f"{GOLD_PREFIX}/features"
+    # Chỉ xử lý total_load signal (bỏ qua các signal khác)
+    ELECTRICITY_SIGNALS = ["total_load"]
+    
+    # Gold path (Canonical Table)
+    GOLD_CANONICAL_PATH = f"{GOLD_PREFIX}/canonical"
     
     # ============ DATE RANGE CONFIG ============
     @staticmethod
@@ -55,11 +45,9 @@ class Config:
             tuple: (start_date_str, end_date_str) format "YYYY-MM-DD"
         """
         if Config.MODE == "BACKFILL":
-            # BACKFILL: Từ 2021-01-01 đến hôm qua
-            start_date = "2021-01-01"
+            start_date = "2021-10-27"  # First date with data
             end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         else:  # DAILY
-            # DAILY: Chỉ xử lý hôm qua
             yesterday = datetime.now() - timedelta(days=1)
             start_date = yesterday.strftime("%Y-%m-%d")
             end_date = start_date
@@ -68,44 +56,17 @@ class Config:
     
     # ============ DATA PROCESSING CONFIG ============
     
-    # Timezone conversion (API returns UTC, Vietnam is UTC+7)
+    # Timezone conversion
     SOURCE_TIMEZONE = "UTC"
     TARGET_TIMEZONE = "Asia/Ho_Chi_Minh"
-    
-    # Data quality thresholds
-    MAX_MISSING_RATIO = 0.3  # 30% missing values threshold
-    
-    # Outlier detection (Z-score method)
-    OUTLIER_ZSCORE_THRESHOLD = 3.5
-    
-    # ============ FEATURE ENGINEERING CONFIG ============
-    
-    # Lag features (n giờ trước)
-    LAG_HOURS = [1, 2, 3, 6, 12, 24]
-    
-    # Rolling window features (trung bình n giờ)
-    ROLLING_WINDOWS = [3, 6, 12, 24]
-    
-    # Vietnamese holidays (để tạo holiday feature)
-    VIETNAM_HOLIDAYS = [
-        # Fixed holidays
-        "01-01",  # Tết Dương lịch
-        "04-30",  # Ngày Giải phóng
-        "05-01",  # Quốc tế Lao động
-        "09-02",  # Quốc khánh
-        # Note: Tết Nguyên Đán thay đổi mỗi năm - cần lunar calendar library
-    ]
     
     # ============ LOGGING CONFIG ============
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     
     # ============ PERFORMANCE CONFIG ============
     
-    # Chunk size cho BACKFILL (xử lý từng đợt để tránh OOM)
-    BACKFILL_CHUNK_DAYS = 30  # Xử lý 30 ngày mỗi lần
-    
     # Parquet compression
-    PARQUET_COMPRESSION = "snappy"  # snappy = nhanh, gzip = nén tốt hơn
+    PARQUET_COMPRESSION = "snappy"
     
     @staticmethod
     def validate():
@@ -128,30 +89,22 @@ class Config:
         """In ra summary của config"""
         return f"""
 ╔══════════════════════════════════════════════════════════╗
-║         PROCESSING SERVICE CONFIGURATION                 ║
+║         PROCESSING SERVICE (REFACTORED)                  ║
 ╚══════════════════════════════════════════════════════════╝
 
 Mode: {Config.MODE}
 S3 Bucket: {Config.S3_BUCKET}
 
-Data Sources:
-  • Weather Bronze: {Config.WEATHER_BRONZE_PATH}
-  • Electricity Bronze: {Config.BRONZE_PREFIX}/electricity/*
-  • Weather Silver: {Config.WEATHER_SILVER_PATH}
-  • Electricity Silver: {Config.ELECTRICITY_SILVER_PATH}
-  • Gold (Features): {Config.GOLD_PATH}
+Pipeline:
+  Bronze → Silver (Physical Cleaning)
+    • Weather: {Config.WEATHER_BRONZE_PATH} → {Config.WEATHER_SILVER_PATH}
+    • Electricity: {Config.ELECTRICITY_BRONZE_PATH}/total_load → {Config.ELECTRICITY_SILVER_PATH}
+  
+  Silver → Gold (Logical Cleaning)
+    • Canonical Table: {Config.GOLD_CANONICAL_PATH}
+    • Columns: [datetime, electricity_demand, temperature, humidity, wind_speed, precipitation]
 
 Processing Config:
-  • Source Timezone: {Config.SOURCE_TIMEZONE}
-  • Target Timezone: {Config.TARGET_TIMEZONE}
-  • Max Missing Ratio: {Config.MAX_MISSING_RATIO}
-  • Outlier Z-score: {Config.OUTLIER_ZSCORE_THRESHOLD}
-
-Feature Engineering:
-  • Lag Hours: {Config.LAG_HOURS}
-  • Rolling Windows: {Config.ROLLING_WINDOWS}
-
-Performance:
-  • Backfill Chunk: {Config.BACKFILL_CHUNK_DAYS} days
+  • Timezone: {Config.SOURCE_TIMEZONE} → {Config.TARGET_TIMEZONE}
   • Parquet Compression: {Config.PARQUET_COMPRESSION}
         """

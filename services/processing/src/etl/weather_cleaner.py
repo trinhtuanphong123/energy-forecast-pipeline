@@ -1,6 +1,6 @@
 """
 etl/weather_cleaner.py
-🧹 Weather Data Cleaner - Bronze → Silver
+🧹 Weather Data Cleaner - Bronze → Silver (Physical Cleaning)
 """
 import logging
 import pandas as pd
@@ -12,210 +12,138 @@ logger = logging.getLogger(__name__)
 
 class WeatherCleaner:
     """
-    Làm sạch dữ liệu thời tiết từ Bronze layer
+    Physical Cleaning: Bronze → Silver
     
     Nhiệm vụ:
-    1. Parse JSON structure thành DataFrame
-    2. Convert timezone UTC → UTC+7
-    3. Handle missing values
-    4. Remove outliers
-    5. Standardize column names
+    1. Flattening: Duỗi phẳng JSON nested
+    2. Type Casting: Ép kiểu dữ liệu chuẩn
+    3. Deduplication: Loại bỏ trùng lặp
+    4. Column Selection: Chọn cột cần thiết
     """
     
     def __init__(
         self,
         source_tz: str = "UTC",
-        target_tz: str = "Asia/Ho_Chi_Minh",
-        outlier_zscore: float = 3.5
+        target_tz: str = "Asia/Ho_Chi_Minh"
     ):
-        """
-        Args:
-            source_tz: Source timezone (API default)
-            target_tz: Target timezone (Vietnam)
-            outlier_zscore: Z-score threshold for outlier detection
-        """
         self.source_tz = pytz.timezone(source_tz)
         self.target_tz = pytz.timezone(target_tz)
-        self.outlier_zscore = outlier_zscore
     
     def clean(self, raw_data: Dict[str, Any], query_date: str) -> pd.DataFrame:
         """
-        Main cleaning pipeline
+        Main cleaning pipeline: Bronze → Silver
         
         Args:
-            raw_data: Raw JSON data from Bronze
+            raw_data: Raw JSON from Bronze
             query_date: Date string (YYYY-MM-DD)
         
         Returns:
-            pd.DataFrame: Cleaned data
+            pd.DataFrame: Cleaned Silver data
         """
-        logger.info(f"🧹 Cleaning weather data for {query_date}")
+        logger.info(f"☀️ Cleaning weather data for {query_date}")
         
-        # Step 1: Parse JSON to DataFrame
-        df = self._parse_json(raw_data, query_date)
-        logger.info(f"  → Parsed {len(df)} hourly records")
+        # Step 1: Flattening
+        df = self._flatten_json(raw_data, query_date)
+        logger.info(f"  → Flattened: {len(df)} hourly records")
         
-        # Step 2: Convert timezone
-        df = self._convert_timezone(df)
-        logger.info(f"  → Converted timezone to {self.target_tz}")
+        # Step 2: Type Casting
+        df = self._cast_types(df)
+        logger.info(f"  → Type cast completed")
         
-        # Step 3: Handle missing values
-        df = self._handle_missing_values(df)
-        logger.info(f"  → Handled missing values")
+        # Step 3: Deduplication
+        df = self._deduplicate(df)
+        logger.info(f"  → Deduplicated: {len(df)} rows")
         
-        # Step 4: Remove outliers
-        df = self._remove_outliers(df)
-        logger.info(f"  → Removed outliers (kept {len(df)} records)")
-        
-        # Step 5: Standardize columns
-        df = self._standardize_columns(df)
-        logger.info(f"  → Standardized column names")
-        
-        # Step 6: Add metadata
-        df = self._add_metadata(df, query_date)
+        # Step 4: Column Selection
+        df = self._select_columns(df)
+        logger.info(f"  → Selected {len(df.columns)} columns")
         
         return df
     
-    def _parse_json(self, raw_data: Dict[str, Any], query_date: str) -> pd.DataFrame:
+    def _flatten_json(self, raw_data: Dict[str, Any], query_date: str) -> pd.DataFrame:
         """
-        Parse Visual Crossing JSON structure
-    
-        JSON structure:
-        {
-            "days": [
-                {
-                    "datetime": "2024-12-20",
-                    "hours": [
-                        {
-                            "datetime": "00:00:00",
-                            "temp": 24.0,
-                            "humidity": 78.0,
-                            ...
-                        }
-                    ]
-               }
-            ]
-        }
+        Flattening: Duỗi phẳng JSON nested structure
+        
+        JSON: {"days": [{"hours": [...]}]} → DataFrame phẳng (1 row/hour)
         """
         try:
-            # Extract hourly data
             days = raw_data.get('days', [])
             if not days:
                 raise ValueError("No 'days' field in raw data")
-        
-            # Get first day (should only have 1 day per file)
+            
             day_data = days[0]
             hours = day_data.get('hours', [])
-        
+            
             if not hours:
                 raise ValueError("No 'hours' field in day data")
-        
+            
             # Convert to DataFrame
             df = pd.DataFrame(hours)
-        
-            # ✅ QUAN TRỌNG: Tạo datetime đầy đủ với DATE + TIME
-            # Parse time string to hour
+            
+            # Create full datetime: date + hour
             df['hour'] = pd.to_datetime(df['datetime'], format='%H:%M:%S').dt.hour
-        
-            # Create full datetime với query_date
             df['datetime'] = pd.to_datetime(query_date) + pd.to_timedelta(df['hour'], unit='h')
-        
+            
             # Drop temporary column
-            df = df.drop(['hour'], axis=1)
-        
+            df = df.drop(['hour'], axis=1, errors='ignore')
+            
             return df
-        
+            
         except Exception as e:
-            logger.error(f"❌ Failed to parse JSON: {e}")
+            logger.error(f"❌ Failed to flatten JSON: {e}")
             raise
     
-    def _convert_timezone(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _cast_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Convert datetime from UTC to Vietnam timezone (UTC+7)
+        Type Casting: Ép kiểu dữ liệu chuẩn
+        
+        - datetime → datetime64[ns] (UTC+7)
+        - temp → float32
+        - humidity → float32
         """
-        # ✅ Visual Crossing trả về data theo LOCAL timezone của location
-        # Với location="Vietnam", data đã ở UTC+7 rồi
-        # Nên chỉ cần localize về UTC+7, KHÔNG CẦN convert
-    
-        # Localize to Vietnam timezone (data đã ở timezone này)
+        # Datetime: Localize to Vietnam timezone (data đã ở UTC+7)
         df['datetime'] = df['datetime'].dt.tz_localize(self.target_tz)
-    
-        # Remove timezone info (keep only naive datetime)
-        df['datetime'] = df['datetime'].dt.tz_localize(None)
-    
-        return df
-    
-    def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Handle missing values:
-        - Forward fill cho numerical columns (use last valid value)
-        - Drop rows nếu quá nhiều missing
-        """
-        numeric_cols = ['temp', 'humidity', 'precip', 'windspeed', 'cloudcover']
+        df['datetime'] = df['datetime'].dt.tz_localize(None)  # Remove timezone info
         
-        # Check missing ratio
-        missing_ratio = df[numeric_cols].isnull().sum() / len(df)
-        
-        for col in numeric_cols:
-            if missing_ratio[col] > 0:
-                logger.warning(f"  ⚠️ {col}: {missing_ratio[col]:.1%} missing")
-                
-                # Forward fill (use last valid value)
-                df[col] = df[col].fillna(method='ffill')
-                
-                # Backward fill for first rows
-                df[col] = df[col].fillna(method='bfill')
-                
-                # If still missing, fill with median
-                if df[col].isnull().any():
-                    median_value = df[col].median()
-                    df[col] = df[col].fillna(median_value)
-                    logger.warning(f"  → Filled remaining with median: {median_value}")
-        
-        return df
-    
-    def _remove_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Remove outliers using Z-score method
-        
-        Reasonable ranges for Vietnam:
-        - temp: 15-40°C
-        - humidity: 30-100%
-        - windspeed: 0-50 km/h
-        - cloudcover: 0-100%
-        """
-        # Define reasonable ranges
-        ranges = {
-            'temp': (15, 40),
-            'humidity': (30, 100),
-            'windspeed': (0, 50),
-            'cloudcover': (0, 100),
-            'precip': (0, 100)  # mm/h
+        # Numeric columns
+        numeric_cols = {
+            'temp': 'float32',
+            'humidity': 'float32',
+            'precip': 'float32',
+            'windspeed': 'float32',
+            'cloudcover': 'float32'
         }
         
-        initial_len = len(df)
-        
-        # Remove obvious outliers (outside reasonable range)
-        for col, (min_val, max_val) in ranges.items():
+        for col, dtype in numeric_cols.items():
             if col in df.columns:
-                outliers = (df[col] < min_val) | (df[col] > max_val)
-                if outliers.any():
-                    logger.warning(f"  ⚠️ Removing {outliers.sum()} outliers in {col}")
-                    df = df[~outliers]
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype(dtype)
+        
+        return df
+    
+    def _deduplicate(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Deduplication: Loại bỏ dòng trùng lặp
+        
+        Keep first occurrence, drop duplicates by datetime
+        """
+        initial_len = len(df)
+        df = df.drop_duplicates(subset=['datetime'], keep='first')
         
         removed = initial_len - len(df)
         if removed > 0:
-            logger.info(f"  → Removed {removed} outlier records")
+            logger.warning(f"  ⚠️ Removed {removed} duplicate rows")
         
         return df
     
-    def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _select_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Rename columns cho consistent
+        Column Selection: Giữ lại cột cần thiết, vứt bỏ metadata rác
+        
+        Keep: datetime, temp, humidity, precip, windspeed, cloudcover
         """
+        # Rename to standard names
         column_mapping = {
             'temp': 'temperature',
-            'humidity': 'humidity',
             'precip': 'precipitation',
             'windspeed': 'wind_speed',
             'cloudcover': 'cloud_cover'
@@ -224,46 +152,36 @@ class WeatherCleaner:
         df = df.rename(columns=column_mapping)
         
         # Select only needed columns
-        required_cols = ['datetime', 'temperature', 'humidity', 'precipitation', 
-                        'wind_speed', 'cloud_cover']
+        required_cols = [
+            'datetime', 
+            'temperature', 
+            'humidity', 
+            'precipitation', 
+            'wind_speed', 
+            'cloud_cover'
+        ]
         
-        df = df[required_cols]
-        
-        return df
-    
-    def _add_metadata(self, df: pd.DataFrame, query_date: str) -> pd.DataFrame:
-        """
-        Add metadata columns
-        """
-        df['source'] = 'visual_crossing'
-        df['processed_at'] = datetime.utcnow()
-        df['query_date'] = query_date
+        # Keep only existing columns
+        available_cols = [col for col in required_cols if col in df.columns]
+        df = df[available_cols]
         
         return df
     
     def validate_output(self, df: pd.DataFrame) -> bool:
-        """
-        Validate cleaned data
+        """Validate cleaned Silver data"""
+        if df.empty:
+            logger.warning("⚠️ Empty DataFrame")
+            return False
         
-        Returns:
-            bool: True if valid
-        """
         # Check required columns
-        required_cols = ['datetime', 'temperature', 'humidity', 'precipitation',
-                        'wind_speed', 'cloud_cover']
-        
+        required_cols = ['datetime', 'temperature']
         missing_cols = set(required_cols) - set(df.columns)
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
         
-        # Check for any remaining nulls
-        null_counts = df[required_cols].isnull().sum()
-        if null_counts.any():
-            logger.warning(f"⚠️ Still have nulls: {null_counts[null_counts > 0]}")
-        
-        # Check data types
+        # Check datetime type
         if not pd.api.types.is_datetime64_any_dtype(df['datetime']):
-            raise ValueError("datetime column must be datetime type")
+            raise ValueError("datetime must be datetime type")
         
-        logger.info("✅ Data validation passed")
+        logger.info("✅ Weather Silver validation passed")
         return True

@@ -34,7 +34,7 @@ class Config:
     # ============ TARGET VARIABLE ============
     # Tên cột target trong Gold data
     # TODO: Cần confirm với Processing service output
-    TARGET_COLUMN = "electricity_demand"  # Hoặc "total_load", "carbon_intensity"
+    TARGET_COLUMN = "total_load"  # Hoặc "electricity_demand" , "carbon_intensity"
     
     # Features to exclude từ training (không phải predictors)
     EXCLUDE_FEATURES = [
