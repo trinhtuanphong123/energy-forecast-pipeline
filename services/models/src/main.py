@@ -1,6 +1,6 @@
 """
 main.py
-🏁 Main Training Pipeline
+🏁 Main Entry Point cho Training Service
 """
 import logging
 import sys
@@ -9,9 +9,11 @@ from datetime import datetime
 from config import Config
 from data.loader import DataLoader
 from data.splitter import DataSplitter
-from models.xgboost_model import XGBoostModel
-from evaluation.metrics import calculate_all_metrics
+from features.factory import FeatureStrategyFactory
+from pipelines.factory import ModelPipelineFactory
+from training.trainer import ModelTrainer
 from storage.model_registry import ModelRegistry
+from storage.metadata import MetadataManager
 
 # Setup logging
 logging.basicConfig(
@@ -24,122 +26,126 @@ logger = logging.getLogger(__name__)
 def main():
     """Main training pipeline"""
     try:
-        # Print config
+        # ============ PRINT CONFIG ============
         print(Config.get_summary())
-        
-        # Validate config
         Config.validate()
         
-        # ============ STEP 1: LOAD DATA ============
-        logger.info("=" * 70)
-        logger.info("STEP 1: LOADING DATA")
-        logger.info("=" * 70)
+        # ============ INITIALIZE COMPONENTS ============
+        logger.info("🔧 Initializing components...")
         
-        loader = DataLoader(
+        # Data loader
+        data_loader = DataLoader(
             bucket_name=Config.S3_BUCKET,
-            gold_prefix=Config.GOLD_PREFIX
+            canonical_prefix=Config.GOLD_CANONICAL_PREFIX
         )
         
-        df = loader.load_gold_data()
-
-        
-        logger.info(f"📊 Available columns: {list(df.columns)}")
-        logger.info(f"📊 Sample columns: {df.columns[:20].tolist()}")  # In 20 columns đầu
-        
-        X, y = loader.prepare_train_data(
-            df=df,
-            target_column=Config.TARGET_COLUMN,
-            exclude_features=Config.EXCLUDE_FEATURES
+        # Feature engineering strategy
+        feature_strategy = FeatureStrategyFactory.create_strategy(
+            strategy_type=Config.FEATURE_STRATEGY,
+            config=Config.get_feature_config()
         )
         
-        # ============ STEP 2: SPLIT DATA ============
-        logger.info("=" * 70)
-        logger.info("STEP 2: SPLITTING DATA")
-        logger.info("=" * 70)
-        
-        X_train, X_val, X_test, y_train, y_val, y_test = DataSplitter.time_series_split(
-            X, y,
-            train_ratio=Config.TRAIN_RATIO,
-            val_ratio=Config.VAL_RATIO,
-            test_ratio=Config.TEST_RATIO
-        )
-        
-        # ============ STEP 3: TRAIN MODEL ============
-        logger.info("=" * 70)
-        logger.info("STEP 3: TRAINING MODEL")
-        logger.info("=" * 70)
-        
-        model = XGBoostModel(hyperparameters=Config.XGBOOST_PARAMS)
-        
-        train_metrics = model.train(
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_val,
-            y_val=y_val
-        )
-        
-        # ============ STEP 4: EVALUATE ============
-        logger.info("=" * 70)
-        logger.info("STEP 4: EVALUATION")
-        logger.info("=" * 70)
-        
-        # Test set evaluation
-        y_test_pred, _ = model.predict(X_test, return_confidence=False)
-        test_metrics = calculate_all_metrics(y_test.values, y_test_pred)
-        
-        logger.info("📊 Test Metrics:")
-        for metric, value in test_metrics.items():
-            logger.info(f"  {metric.upper()}: {value:.4f}")
-        
-        # Feature importance
-        feature_importance = model.get_top_features(n=10)
-        logger.info("🔍 Top 10 Features:")
-        for feat, importance in feature_importance.items():
-            logger.info(f"  {feat}: {importance:.4f}")
-        
-        # ============ STEP 5: SAVE MODEL ============
-        logger.info("=" * 70)
-        logger.info("STEP 5: SAVING MODEL")
-        logger.info("=" * 70)
-        
-        # Generate version
-        version = Config.MODEL_VERSION or f"v1.0.{int(datetime.now().timestamp())}"
-        
-        # Save metadata
-        model.save_metadata(
-            version=version,
-            train_size=len(X_train),
-            val_size=len(X_val),
-            test_size=len(X_test),
-            feature_names=X_train.columns.tolist()
-        )
-        
-        # Save to S3
-        registry = ModelRegistry(
-            bucket_name=Config.S3_BUCKET,
-            models_prefix=Config.MODELS_PREFIX
-        )
-        
-        model_uri = registry.save_model(
-            model=model,
+        # Model pipeline
+        model_pipeline = ModelPipelineFactory.create_pipeline(
             model_type=Config.MODEL_TYPE,
-            version=version,
-            metadata=model.metadata.to_dict(),
-            metrics={**train_metrics, **test_metrics}
+            hyperparameters=Config.get_model_params()
         )
         
-        logger.info(f"✅ Model saved: {model_uri}")
+        # Data splitter
+        data_splitter = DataSplitter()
         
-        # ============ FINAL REPORT ============
-        logger.info("=" * 70)
-        logger.info("🎉 TRAINING COMPLETED")
-        logger.info("=" * 70)
-        logger.info(f"Model Type: {Config.MODEL_TYPE}")
-        logger.info(f"Version: {version}")
-        logger.info(f"Test RMSE: {test_metrics['rmse']:.2f}")
-        logger.info(f"Test MAPE: {test_metrics['mape']:.2f}%")
+        # Trainer
+        trainer = ModelTrainer(config=Config)
         
-        sys.exit(0)
+        # ============ EXECUTE TRAINING ============
+        if Config.MODE == "FULL_TRAIN":
+            
+            results = trainer.train_full(
+                data_loader=data_loader,
+                feature_strategy=feature_strategy,
+                model_pipeline=model_pipeline,
+                data_splitter=data_splitter
+            )
+            
+            # ============ SAVE MODEL ============
+            logger.info("\n" + "=" * 70)
+            logger.info("STEP 7: SAVING MODEL")
+            logger.info("=" * 70)
+            
+            # Generate version
+            version = Config.MODEL_VERSION or f"v1.0.{int(datetime.now().timestamp())}"
+            
+            # Create metadata
+            metadata_manager = MetadataManager()
+            
+            training_metadata = metadata_manager.create_training_metadata(
+                mode=Config.MODE,
+                start_time=trainer.start_time,
+                end_time=trainer.end_time,
+                total_samples=sum([
+                    results['split_info']['train_samples'],
+                    results['split_info']['val_samples'],
+                    results['split_info']['test_samples']
+                ]),
+                train_samples=results['split_info']['train_samples'],
+                val_samples=results['split_info']['val_samples'],
+                test_samples=results['split_info']['test_samples'],
+                features=model_pipeline.feature_names,
+                hyperparameters=Config.get_model_params()
+            )
+            
+            model_metadata = metadata_manager.create_model_metadata(
+                model_type=Config.MODEL_TYPE,
+                version=version,
+                training_metadata=training_metadata,
+                metrics={**results['train_metrics'], **results['test_metrics']},
+                tags={
+                    'feature_strategy': Config.FEATURE_STRATEGY,
+                    'auto_generated': 'true'
+                },
+                notes=f"Training completed at {datetime.utcnow().isoformat()}"
+            )
+            
+            # Save to S3
+            registry = ModelRegistry(
+                bucket_name=Config.S3_BUCKET,
+                models_prefix=Config.MODELS_PREFIX
+            )
+            
+            model_uri = registry.save_model(
+                model=model_pipeline.get_pipeline(),  # Save sklearn Pipeline
+                model_type=Config.MODEL_TYPE,
+                version=version,
+                metadata=model_metadata.to_dict(),
+                metrics={**results['train_metrics'], **results['test_metrics']}
+            )
+            
+            logger.info(f"✅ Model saved: {model_uri}")
+            
+            # ============ FINAL REPORT ============
+            logger.info("\n" + "=" * 70)
+            logger.info("🎉 TRAINING PIPELINE COMPLETED")
+            logger.info("=" * 70)
+            logger.info(f"Model: {Config.MODEL_TYPE}")
+            logger.info(f"Version: {version}")
+            logger.info(f"Test RMSE: {results['test_metrics']['rmse']:.2f}")
+            logger.info(f"Test MAPE: {results['test_metrics']['mape']:.2f}%")
+            logger.info(f"Total Features: {len(model_pipeline.feature_names)}")
+            logger.info(f"Duration: {results['duration_seconds']:.1f}s")
+            
+            sys.exit(0)
+        
+        elif Config.MODE == "INCREMENTAL":
+            logger.error("❌ INCREMENTAL mode not yet implemented")
+            sys.exit(1)
+        
+        elif Config.MODE == "PREDICT":
+            logger.error("❌ PREDICT mode not yet implemented")
+            sys.exit(1)
+        
+        else:
+            logger.error(f"❌ Unknown MODE: {Config.MODE}")
+            sys.exit(1)
         
     except Exception as e:
         logger.error(f"💥 Fatal error: {e}", exc_info=True)

@@ -1,6 +1,6 @@
 """
 config.py
-⚙️ Configuration Management cho Service Training
+⚙️ Configuration Management cho Service Training (Updated)
 """
 import os
 from typing import Literal, List, Dict, Any
@@ -9,9 +9,6 @@ class Config:
     """Centralized configuration for Training Service"""
     
     # ============ MODE CONFIGURATION ============
-    # FULL_TRAIN: Train từ đầu với toàn bộ data
-    # INCREMENTAL: Retrain với data mới
-    # PREDICT: Chỉ generate predictions
     MODE: Literal["FULL_TRAIN", "INCREMENTAL", "PREDICT"] = os.getenv(
         "MODE", "FULL_TRAIN"
     )
@@ -19,38 +16,55 @@ class Config:
     # ============ S3 CONFIGURATION ============
     S3_BUCKET = os.getenv("S3_BUCKET", "vietnam-energy-data")
     
-    # Data paths
-    GOLD_PREFIX = "gold/features"
+    # Data paths - ĐỌC TỪ GOLD CANONICAL (đã có features)
+    GOLD_CANONICAL_PREFIX = "gold/canonical"  # Output từ Processing service
     MODELS_PREFIX = "models"
     PREDICTIONS_PREFIX = "predictions"
     
     # ============ MODEL CONFIGURATION ============
-    # Model type: xgboost, lstm, random_forest
     MODEL_TYPE = os.getenv("MODEL_TYPE", "xgboost")
-    
-    # Model version (auto-increment nếu không set)
     MODEL_VERSION = os.getenv("MODEL_VERSION", None)
     
     # ============ TARGET VARIABLE ============
-    # Tên cột target trong Gold data
-    # TODO: Cần confirm với Processing service output
-    TARGET_COLUMN = "total_load"  # Hoặc "electricity_demand" , "carbon_intensity"
+    # Target column trong Gold Canonical
+    TARGET_COLUMN = "total_load"  # Hoặc "carbon_intensity"
     
-    # Features to exclude từ training (không phải predictors)
+    # Columns to exclude (metadata, không phải features)
     EXCLUDE_FEATURES = [
-        'datetime',
-        'query_date',
-        'source',
-        'processed_at',
-        'signal',
-        TARGET_COLUMN  # Target không phải feature
+        'datetime',           # Timestamp
+        'query_date',         # Processing metadata
+        'source',             # Data source
+        'processed_at',       # Processing timestamp
+        'signal',             # Signal column
+        TARGET_COLUMN         # Target không phải feature
     ]
+    
+    # ============ FEATURE ENGINEERING STRATEGY ============
+    # Strategy: "xgboost", "lstm", "prophet"
+    FEATURE_STRATEGY = os.getenv("FEATURE_STRATEGY", "xgboost")
+    
+    # XGBoost-specific features (nếu cần thêm features từ Canonical)
+    XGBOOST_FEATURE_CONFIG = {
+        'create_lags': True,
+        'lag_periods': [1, 2, 3, 24, 168],  # 1h, 2h, 3h, 1day, 1week
+        'create_rolling': True,
+        'rolling_windows': [3, 6, 12, 24],  # 3h, 6h, 12h, 24h
+        'create_interactions': False  # Tương tác giữa features
+    }
     
     # ============ DATA SPLIT ============
     TRAIN_RATIO = 0.7
     VAL_RATIO = 0.15
     TEST_RATIO = 0.15
     RANDOM_STATE = 42
+    
+    # ============ MODEL PIPELINE CONFIGURATION ============
+    # Sklearn Pipeline steps
+    PIPELINE_STEPS = [
+        'scaler',      # StandardScaler
+        'selector',    # Feature selection (optional)
+        'model'        # XGBRegressor
+    ]
     
     # ============ XGBOOST HYPERPARAMETERS ============
     XGBOOST_PARAMS = {
@@ -72,93 +86,49 @@ class Config:
     # Early stopping
     EARLY_STOPPING_ROUNDS = 10
     
-    # ============ LSTM HYPERPARAMETERS (Future) ============
-    LSTM_PARAMS = {
-        'hidden_size': 64,
-        'num_layers': 2,
-        'dropout': 0.2,
-        'learning_rate': 0.001,
-        'epochs': 50,
-        'batch_size': 32
-    }
-    
-    # ============ FEATURE ENGINEERING ============
-    # Feature selection
-    FEATURE_IMPORTANCE_THRESHOLD = 0.01  # Drop features < 1% importance
-    MAX_FEATURES = 50  # Limit số features
-    
-    # Feature scaling
-    SCALING_METHOD = "standard"  # standard, minmax, robust
-    
     # ============ EVALUATION ============
-    # Cross-validation
     CV_FOLDS = 5
-    
-    # Metrics to track
-    METRICS = [
-        'rmse',
-        'mape', 
-        'mae',
-        'r2',
-        'forecast_bias'
-    ]
-    
-    # Confidence interval
-    CONFIDENCE_LEVEL = 0.95  # 95% confidence interval
+    METRICS = ['rmse', 'mape', 'mae', 'r2', 'forecast_bias']
+    CONFIDENCE_LEVEL = 0.95
     
     # ============ PREDICTION ============
-    # Forecast horizon (hours)
-    FORECAST_HORIZON = 24  # Dự báo 24 giờ tới
-    
-    # Prediction frequency
-    PREDICTION_FREQUENCY = 'H'  # Hourly
+    FORECAST_HORIZON = 24  # hours
+    PREDICTION_FREQUENCY = 'H'
     
     # ============ MODEL REGISTRY ============
-    # Model versioning format
     VERSION_FORMAT = "v{major}.{minor}.{patch}"
-    
-    # Keep last N versions
     KEEP_VERSIONS = 5
-    
-    # Auto-promote to latest if metrics improve
     AUTO_PROMOTE = True
-    PROMOTION_METRIC = 'rmse'  # Metric to compare
+    PROMOTION_METRIC = 'rmse'
     
     # ============ LOGGING ============
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     
     # ============ PERFORMANCE ============
-    # Memory limit for data loading (GB)
     MAX_MEMORY_GB = 4
-    
-    # Batch size for large datasets
     BATCH_SIZE = 10000
     
     @staticmethod
+    def get_feature_config() -> Dict[str, Any]:
+        """Get feature engineering config cho strategy hiện tại"""
+        if Config.FEATURE_STRATEGY == "xgboost":
+            return Config.XGBOOST_FEATURE_CONFIG
+        else:
+            return {}
+    
+    @staticmethod
     def get_model_params() -> Dict[str, Any]:
-        """Get hyperparameters cho model type hiện tại"""
+        """Get hyperparameters cho model type"""
         if Config.MODEL_TYPE == "xgboost":
             return Config.XGBOOST_PARAMS
-        elif Config.MODEL_TYPE == "lstm":
-            return Config.LSTM_PARAMS
         else:
             raise ValueError(f"Unknown model type: {Config.MODEL_TYPE}")
     
     @staticmethod
     def get_model_path(version: str = None) -> str:
-        """
-        Get S3 path for model
-        
-        Args:
-            version: Model version (e.g., "v1.0.0")
-                    If None, returns "latest"
-        
-        Returns:
-            str: S3 path
-        """
+        """Get S3 path for model"""
         if version is None:
             version = "latest"
-        
         return f"{Config.MODELS_PREFIX}/{Config.MODEL_TYPE}/{version}"
     
     @staticmethod
@@ -166,24 +136,16 @@ class Config:
         """Validate configuration"""
         errors = []
         
-        # Check S3 bucket
         if not Config.S3_BUCKET:
             errors.append("❌ S3_BUCKET không được set")
         
-        # Check mode
         valid_modes = ["FULL_TRAIN", "INCREMENTAL", "PREDICT"]
         if Config.MODE not in valid_modes:
             errors.append(f"❌ MODE không hợp lệ: {Config.MODE}")
         
-        # Check model type
-        valid_models = ["xgboost", "lstm", "random_forest"]
-        if Config.MODEL_TYPE not in valid_models:
-            errors.append(f"❌ MODEL_TYPE không hợp lệ: {Config.MODEL_TYPE}")
-        
-        # Check split ratios
         total_ratio = Config.TRAIN_RATIO + Config.VAL_RATIO + Config.TEST_RATIO
         if abs(total_ratio - 1.0) > 0.01:
-            errors.append(f"❌ Data split ratios phải tổng = 1.0 (hiện tại: {total_ratio})")
+            errors.append(f"❌ Split ratios phải = 1.0 (hiện tại: {total_ratio})")
         
         if errors:
             raise ValueError("\n".join(errors))
@@ -200,30 +162,25 @@ class Config:
 
 Mode: {Config.MODE}
 Model Type: {Config.MODEL_TYPE}
+Feature Strategy: {Config.FEATURE_STRATEGY}
 S3 Bucket: {Config.S3_BUCKET}
 
 Data:
-  • Gold Path: {Config.GOLD_PREFIX}
-  • Target Column: {Config.TARGET_COLUMN}
-  • Train/Val/Test: {Config.TRAIN_RATIO}/{Config.VAL_RATIO}/{Config.TEST_RATIO}
+  • Gold Canonical: {Config.GOLD_CANONICAL_PREFIX}
+  • Target: {Config.TARGET_COLUMN}
+  • Split: {Config.TRAIN_RATIO}/{Config.VAL_RATIO}/{Config.TEST_RATIO}
 
-Model:
-  • Max Depth: {Config.XGBOOST_PARAMS.get('max_depth', 'N/A')}
-  • Learning Rate: {Config.XGBOOST_PARAMS.get('learning_rate', 'N/A')}
-  • N Estimators: {Config.XGBOOST_PARAMS.get('n_estimators', 'N/A')}
-  • Early Stopping: {Config.EARLY_STOPPING_ROUNDS} rounds
+Feature Engineering:
+  • Lags: {Config.XGBOOST_FEATURE_CONFIG.get('lag_periods', [])}
+  • Rolling: {Config.XGBOOST_FEATURE_CONFIG.get('rolling_windows', [])}
+
+Model Pipeline:
+  • Steps: {' → '.join(Config.PIPELINE_STEPS)}
+  • Max Depth: {Config.XGBOOST_PARAMS.get('max_depth')}
+  • Learning Rate: {Config.XGBOOST_PARAMS.get('learning_rate')}
+  • N Estimators: {Config.XGBOOST_PARAMS.get('n_estimators')}
 
 Evaluation:
   • CV Folds: {Config.CV_FOLDS}
   • Metrics: {', '.join(Config.METRICS)}
-  • Confidence Level: {Config.CONFIDENCE_LEVEL}
-
-Prediction:
-  • Forecast Horizon: {Config.FORECAST_HORIZON} hours
-  • Frequency: {Config.PREDICTION_FREQUENCY}
-
-Model Registry:
-  • Models Path: {Config.MODELS_PREFIX}/{Config.MODEL_TYPE}/
-  • Keep Versions: {Config.KEEP_VERSIONS}
-  • Auto Promote: {Config.AUTO_PROMOTE}
         """
