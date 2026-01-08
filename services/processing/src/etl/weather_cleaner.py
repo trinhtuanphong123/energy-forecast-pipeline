@@ -79,7 +79,7 @@ class WeatherCleaner:
     def _parse_json(self, raw_data: Dict[str, Any], query_date: str) -> pd.DataFrame:
         """
         Parse Visual Crossing JSON structure
-        
+    
         JSON structure:
         {
             "days": [
@@ -93,7 +93,7 @@ class WeatherCleaner:
                             ...
                         }
                     ]
-                }
+               }
             ]
         }
         """
@@ -102,29 +102,29 @@ class WeatherCleaner:
             days = raw_data.get('days', [])
             if not days:
                 raise ValueError("No 'days' field in raw data")
-            
+        
             # Get first day (should only have 1 day per file)
             day_data = days[0]
             hours = day_data.get('hours', [])
-            
+        
             if not hours:
                 raise ValueError("No 'hours' field in day data")
-            
+        
             # Convert to DataFrame
             df = pd.DataFrame(hours)
-            
-            # Add date column
-            df['date'] = query_date
-            
-            # Create full datetime
-            df['datetime_str'] = df['date'] + ' ' + df['datetime']
-            df['datetime'] = pd.to_datetime(df['datetime_str'])
-            
-            # Drop temporary columns
-            df = df.drop(['datetime_str'], axis=1)
-            
+        
+            # ✅ QUAN TRỌNG: Tạo datetime đầy đủ với DATE + TIME
+            # Parse time string to hour
+            df['hour'] = pd.to_datetime(df['datetime'], format='%H:%M:%S').dt.hour
+        
+            # Create full datetime với query_date
+            df['datetime'] = pd.to_datetime(query_date) + pd.to_timedelta(df['hour'], unit='h')
+        
+            # Drop temporary column
+            df = df.drop(['hour'], axis=1)
+        
             return df
-            
+        
         except Exception as e:
             logger.error(f"❌ Failed to parse JSON: {e}")
             raise
@@ -133,15 +133,16 @@ class WeatherCleaner:
         """
         Convert datetime from UTC to Vietnam timezone (UTC+7)
         """
-        # Localize to source timezone
-        df['datetime'] = df['datetime'].dt.tz_localize(self.source_tz)
-        
-        # Convert to target timezone
-        df['datetime'] = df['datetime'].dt.tz_convert(self.target_tz)
-        
+        # ✅ Visual Crossing trả về data theo LOCAL timezone của location
+        # Với location="Vietnam", data đã ở UTC+7 rồi
+        # Nên chỉ cần localize về UTC+7, KHÔNG CẦN convert
+    
+        # Localize to Vietnam timezone (data đã ở timezone này)
+        df['datetime'] = df['datetime'].dt.tz_localize(self.target_tz)
+    
         # Remove timezone info (keep only naive datetime)
         df['datetime'] = df['datetime'].dt.tz_localize(None)
-        
+    
         return df
     
     def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:

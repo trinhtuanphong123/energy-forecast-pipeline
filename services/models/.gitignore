@@ -108,9 +108,9 @@ desktop.ini
 *.csv
 *.parquet
 *.json
-data/
+# data/
 datasets/
-models/
+# models/
 checkpoints/
 
 # ============ Logs ============
