@@ -199,13 +199,14 @@ def main():
         logger.info("✅ All components initialized")
         
         # ============ INGESTION WORKFLOW ============
-        
+
+
         # Step 1: Ingest Weather Data
         logger.info("=" * 60)
         logger.info("STEP 1: WEATHER DATA INGESTION")
         logger.info("=" * 60)
         weather_stats = ingest_weather_data(weather_client, s3_writer, date_list)
-        
+
         # Step 2: Ingest Electricity Data
         logger.info("=" * 60)
         logger.info("STEP 2: ELECTRICITY DATA INGESTION")
@@ -216,6 +217,12 @@ def main():
             date_list,
             Config.ELECTRICITY_SIGNALS
         )
+
+        
+        
+        
+        
+        
         
         # ============ FINAL REPORT ============
         logger.info("=" * 60)

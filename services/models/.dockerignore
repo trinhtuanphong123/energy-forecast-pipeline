@@ -1,0 +1,123 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+.directory
+
+# Environment files (IMPORTANT: DO NOT include in Docker image)
+.env
+.env.local
+.env.*.local
+.aws/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+test/
+
+# Documentation
+README.md
+docs/
+*.md
+LICENSE
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints
+notebooks/
+
+# Models (don't include in image, will load from S3)
+*.pkl
+*.h5
+*.pt
+*.pth
+*.ckpt
+models/
+checkpoints/
+
+# Data files (load from S3)
+*.csv
+*.parquet
+*.json
+data/
+datasets/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# ML experiments
+mlruns/
+experiments/
+wandb/
+tensorboard/
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.crt

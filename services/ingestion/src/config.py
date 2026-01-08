@@ -6,12 +6,21 @@ import os
 from datetime import datetime, timedelta
 from typing import Literal
 
+from datetime import datetime, timedelta, timezone
+
+VN_TZ = timezone(timedelta(hours=7))
+now_vn = datetime.now(VN_TZ)
+
+
 class Config:
     """Centralized configuration management"""
     
     # ============ MODE CONFIGURATION ============
     # Chạy mode nào? BACKFILL (1 lần) hoặc DAILY (hàng ngày)
-    MODE: Literal["BACKFILL", "DAILY"] = os.getenv("MODE", "DAILY")
+    @staticmethod
+    def get_mode() -> Literal["BACKFILL", "DAILY"]:
+        return os.getenv("MODE", "DAILY")
+
     
     # ============ API KEYS (Secret) ============
     VISUAL_CROSSING_API_KEY = os.getenv("VISUAL_CROSSING_API_KEY")
@@ -52,22 +61,16 @@ class Config:
     # ============ DATE RANGE CONFIG ============
     @staticmethod
     def get_date_range():
-        """
-        Trả về (start_date, end_date) dựa trên MODE
-        
-        Returns:
-            tuple: (start_date_str, end_date_str) format "YYYY-MM-DD"
-        """
-        if Config.MODE == "BACKFILL":
-            # BACKFILL: Từ 2021-01-01 đến hôm qua
-            start_date = "2021-01-01"
-            end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        else:  # DAILY
-            # DAILY: Chỉ lấy hôm qua
-            yesterday = datetime.now() - timedelta(days=1)
+        now_vn = datetime.now(timezone(timedelta(hours=7)))
+
+        if Config.get_mode() == "BACKFILL":
+            start_date = "2021-10-27"
+            end_date = (now_vn - timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            yesterday = now_vn - timedelta(days=1)
             start_date = yesterday.strftime("%Y-%m-%d")
             end_date = start_date
-        
+
         return start_date, end_date
     
     # ============ RETRY CONFIG ============

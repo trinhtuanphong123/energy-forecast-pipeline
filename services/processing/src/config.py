@@ -24,17 +24,20 @@ class Config:
     
     # ============ DATA SOURCE PATHS ============
     # Weather Bronze path
-    WEATHER_BRONZE_PATH = f"{BRONZE_PREFIX}/weather"
+    WEATHER_BRONZE_PATH = f"{BRONZE_PREFIX}/weather"  # ✅ THÊM DẤU PHẨY
     
-    # Electricity Bronze paths (5 signals)
+    # Electricity Bronze base path
+    ELECTRICITY_BRONZE_PATH = f"{BRONZE_PREFIX}/electricity"
+
+    # Electricity signals
     ELECTRICITY_SIGNALS = [
         "carbon_intensity",
-        "total_load", 
+        "total_load",
         "price_day_ahead",
         "electricity_mix",
         "electricity_flows"
     ]
-    
+
     # Silver paths (cleaned data)
     WEATHER_SILVER_PATH = f"{SILVER_PREFIX}/weather"
     ELECTRICITY_SILVER_PATH = f"{SILVER_PREFIX}/electricity"

@@ -113,16 +113,21 @@ class ElectricityCleaner:
         """Convert datetime to Vietnam timezone"""
         if df.empty:
             return df
-        
-        # Localize to UTC (API returns UTC)
-        df['datetime'] = df['datetime'].dt.tz_localize('UTC')
-        
+    
+        # 🔥 FIX: Kiểm tra xem datetime đã có timezone chưa
+        if df['datetime'].dt.tz is None:
+            # Chưa có timezone → localize to UTC
+            df['datetime'] = df['datetime'].dt.tz_localize('UTC')
+        else:
+            # Đã có timezone → chỉ cần convert
+            df['datetime'] = df['datetime'].dt.tz_convert('UTC')
+    
         # Convert to Vietnam timezone
         df['datetime'] = df['datetime'].dt.tz_convert(self.target_tz)
-        
+    
         # Remove timezone info
         df['datetime'] = df['datetime'].dt.tz_localize(None)
-        
+    
         return df
     
     def _handle_missing_values(self, df: pd.DataFrame, signal_name: str) -> pd.DataFrame:

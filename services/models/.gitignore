@@ -1,0 +1,149 @@
+# ============ Python ============
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# ============ Jupyter Notebook ============
+.ipynb_checkpoints
+*.ipynb
+
+# ============ Environment ============
+.env
+.env.local
+.env.*.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ============ IDEs ============
+# PyCharm
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ============ OS ============
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+edb.log
+*.stackdump
+desktop.ini
+
+# Linux
+*~
+.directory
+
+# ============ Models & Data ============
+# Trained models (local testing only)
+*.pkl
+*.h5
+*.pt
+*.pth
+*.ckpt
+*.pb
+
+# Local data files (do not commit large files)
+*.csv
+*.parquet
+*.json
+data/
+datasets/
+models/
+checkpoints/
+
+# ============ Logs ============
+*.log
+logs/
+*.out
+
+# ============ AWS Credentials ============
+.aws/
+credentials
+config
+
+# ============ Docker ============
+*.tar
+*.gz
+
+# ============ Temporary files ============
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# ============ ML Experiments ============
+mlruns/
+experiments/
+wandb/
+tensorboard/
+.neptune/
+
+# ============ Secrets ============
+secrets/
+*.key
+*.pem
+*.crt
+*.p12

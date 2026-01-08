@@ -101,64 +101,87 @@ def process_electricity_bronze_to_silver(
     """
     try:
         logger.info(f"⚡ Processing electricity data for {date}")
-        
-        signal_dfs = {}
-        
-        # Process each signal
+
+        signal_dfs = {}  # 🔴 PHẢI LÀ DICT
+
         for signal in Config.ELECTRICITY_SIGNALS:
-            try:
-                # Read Bronze data
-                bronze_key = s3.get_partition_path(
-                    f"{Config.BRONZE_PREFIX}/electricity/{signal}",
-                    date,
-                    "data.json"
-                )
-                
-                if not s3.check_file_exists(bronze_key):
-                    logger.warning(f"⚠️ Bronze not found: {signal}")
-                    continue
-                
-                raw_data = s3.read_json(bronze_key)
-                
-                # Clean data
-                cleaned_df = cleaner.clean(raw_data, signal, date)
-                
-                if not cleaned_df.empty:
-                    signal_dfs[signal] = cleaned_df
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to process {signal}: {e}")
+            bronze_key = s3.get_partition_path(
+                f"{Config.ELECTRICITY_BRONZE_PATH}/{signal}",
+                date,
+                "data.json"
+            )
+
+            logger.info(
+                f"🔍 Checking electricity bronze: "
+                f"s3://{Config.S3_BUCKET}/{bronze_key}"
+            )
+
+            if not s3.check_file_exists(bronze_key):
+                msg = f"Missing electricity signal [{signal}] for {date}"
+
+                if Config.MODE == "DAILY":
+                    logger.error(f"❌ {msg}")
+                    # Trong DAILY mode, thiếu signal là vấn đề nghiêm trọng
+                    # Nhưng không raise exception ngay, tiếp tục với các signal khác
+                else:
+                    logger.warning(f"⚠️ {msg}")
                 continue
-        
+
+            try:
+                raw_data = s3.read_json(bronze_key)
+
+                # 🔥 ENTRY POINT DUY NHẤT
+                df = cleaner.clean(raw_data, signal, date)
+
+                if not df.empty:
+                    signal_dfs[signal] = df
+                    logger.info(f"  ✅ Signal [{signal}]: {len(df)} rows")
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Failed processing [{signal}] for {date}: {e}",
+                    exc_info=True
+                )
+                if Config.MODE == "DAILY":
+                    # Trong DAILY mode, log error nhưng tiếp tục
+                    continue
+                else:
+                    # Trong BACKFILL mode, có thể bỏ qua
+                    continue
+
+        logger.info(
+            f"📊 Electricity signals processed: "
+            f"{len(signal_dfs)}/{len(Config.ELECTRICITY_SIGNALS)}"
+        )
+
         if not signal_dfs:
             logger.warning(f"⚠️ No electricity data for {date}")
             return False
-        
-        # Merge all signals
+
+        # Merge signals
         merged_df = cleaner.merge_signals(signal_dfs)
-        
-        # Validate
         cleaner.validate_output(merged_df)
-        
+
         # Write to Silver
         silver_key = s3.get_partition_path(
             Config.ELECTRICITY_SILVER_PATH,
             date,
             "data.parquet"
         )
-        
+
         s3.write_parquet(
             merged_df,
             silver_key,
             compression=Config.PARQUET_COMPRESSION
         )
-        
+
         logger.info(f"✅ Electricity Silver: {len(merged_df)} rows → {silver_key}")
         return True
-        
+
     except Exception as e:
         logger.error(f"❌ Failed to process electricity for {date}: {e}", exc_info=True)
         return False
+
 
 def process_silver_to_gold(
     s3: S3Connector,
@@ -194,15 +217,23 @@ def process_silver_to_gold(
             # Read electricity Silver
             try:
                 elec_key = s3.get_partition_path(
-                    Config.ELECTRICITY_SILVER_PATH,
-                    date,
-                    "data.parquet"
+                Config.ELECTRICITY_SILVER_PATH,
+                date,
+                "data.parquet"
                 )
+    
+                logger.info(f"🔍 Looking for electricity: {elec_key}")
+    
                 if s3.check_file_exists(elec_key):
                     elec_df = s3.read_parquet(elec_key)
+                    logger.info(f"  ✅ Loaded: {len(elec_df)} rows, {len(elec_df.columns)} cols")
+                    logger.info(f"  Columns: {elec_df.columns.tolist()}")
                     electricity_dfs.append(elec_df)
+                else:
+                    logger.warning(f"  ⚠️ File not found: {elec_key}")
+        
             except Exception as e:
-                logger.warning(f"⚠️ Failed to read electricity Silver for {date}: {e}")
+                    logger.error(f"⚠️ Failed to read electricity for {date}: {e}", exc_info=True)
         
         if not weather_dfs:
             logger.error("❌ No weather Silver data found")

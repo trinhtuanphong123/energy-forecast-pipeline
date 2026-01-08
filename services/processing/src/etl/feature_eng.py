@@ -62,6 +62,10 @@ class FeatureEngineer:
         # Step 1: Merge weather + electricity
         df = self._merge_datasets(weather_df, electricity_df)
         logger.info(f"  → Merged datasets: {len(df)} rows")
+
+        # ✅ THÊM: Tạo target column từ electricity data
+        df = self._create_target_column(df)
+        logger.info(f"  → Created target column")
         
         # Step 2: Time-based features
         df = self._create_time_features(df)
@@ -103,26 +107,43 @@ class FeatureEngineer:
         weather_df: pd.DataFrame,
         electricity_df: pd.DataFrame
     ) -> pd.DataFrame:
-        """
-        Merge weather và electricity data
-        """
+        """Merge weather và electricity data"""
         logger.info("🔗 Merging weather and electricity data")
-        
+    
         # Ensure datetime columns
         weather_df['datetime'] = pd.to_datetime(weather_df['datetime'])
         electricity_df['datetime'] = pd.to_datetime(electricity_df['datetime'])
-        
+
+        logger.info(f"📊 Weather columns: {weather_df.columns.tolist()}")
+        logger.info(f"📊 Electricity columns: {electricity_df.columns.tolist()}")
+    
         # Merge on datetime (outer join để giữ tất cả timestamps)
         merged = weather_df.merge(
-            electricity_df,
-            on='datetime',
-            how='outer',
-            suffixes=('_weather', '_electricity')
+        electricity_df,
+        on='datetime',
+        how='outer',
+        suffixes=('_weather', '_electricity')
         )
-        
+    
         # Sort by datetime
         merged = merged.sort_values('datetime').reset_index(drop=True)
-        
+    
+        # ✅ THÊM: Forward fill weather data (vì weather có 1 row/day, electricity có 24 rows/day)
+        weather_cols = [col for col in merged.columns if 'weather' in col or col in ['temperature', 'humidity', 'wind_speed', 'precipitation', 'cloud_cover']]
+    
+        logger.info(f"🔧 Forward filling weather columns: {weather_cols}")
+        for col in weather_cols:
+            if col in merged.columns:
+                merged[col] = merged[col].fillna(method='ffill')
+                merged[col] = merged[col].fillna(method='bfill')  # Backup for first rows
+    
+        logger.info(f"📊 Merged columns ({len(merged.columns)}): {merged.columns.tolist()}")
+
+        numeric_cols = merged.select_dtypes(include=['float64', 'int64']).columns
+        elec_numeric = [col for col in numeric_cols if 'temperature' not in col.lower() 
+                and 'humidity' not in col.lower() and 'wind' not in col.lower()]
+        logger.info(f"📊 Electricity numeric columns: {elec_numeric[:10]}")
+    
         return merged
     
     def _create_time_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -308,3 +329,77 @@ class FeatureEngineer:
         
         logger.info("✅ Feature validation passed")
         return True
+    
+
+
+
+    def _create_target_column(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Tạo target column từ electricity signals đã merge
+        """
+        logger.info("🎯 Creating target column...")
+    
+        # ✅ Tìm columns liên quan đến total load/demand
+        # Sau khi merge_signals, columns sẽ có format: {signal_name}_{original_column}
+    
+        possible_patterns = [
+        'total_load',           # Từ signal total_load
+        'powerConsumption',     # Từ API Electricity Maps
+        'consumption',
+        'load',
+        'demand'
+        ]
+    
+        # Tìm column phù hợp
+        target_col = None
+        for pattern in possible_patterns:
+            matching_cols = [col for col in df.columns if pattern.lower() in col.lower()]
+        
+            if matching_cols:
+                # Ưu tiên column có 'total' hoặc số lớn nhất
+                for col in matching_cols:
+                    # Bỏ qua các column metadata
+                    if any(skip in col.lower() for skip in ['signal', 'source', 'processed', 'query']):
+                        continue
+                
+                    # Kiểm tra là numeric
+                    if df[col].dtype in ['float64', 'int64']:
+                        target_col = col
+                        break
+        
+            if target_col:
+                break
+    
+        if target_col:
+            df['electricity_demand'] = df[target_col]
+            logger.info(f"  ✅ Created target 'electricity_demand' from '{target_col}'")
+        else:
+            # Fallback: Dùng column numeric đầu tiên từ electricity
+            numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+        
+            # Loại bỏ weather columns
+            weather_keywords = ['temperature', 'humidity', 'wind', 'precipitation', 'cloud', 'pressure']
+            electricity_cols = [
+                col for col in numeric_cols 
+                if not any(keyword in col.lower() for keyword in weather_keywords)
+                and not any(skip in col.lower() for skip in ['signal', 'source', 'processed', 'query', 'hour', 'day', 'month', 'year'])
+            ]
+        
+            if electricity_cols:
+                target_col = electricity_cols[0]
+                df['electricity_demand'] = df[target_col]
+                logger.info(f"  ⚠️ Using fallback target '{target_col}'")
+            else:
+                logger.error("❌ Cannot find suitable target column!")
+                logger.error(f"Available columns: {df.columns.tolist()}")
+                raise ValueError("No suitable electricity demand column found")
+    
+        # Validate target
+        if df['electricity_demand'].isnull().all():
+            raise ValueError("Target column is all NaN!")
+    
+        null_ratio = df['electricity_demand'].isnull().sum() / len(df)
+        if null_ratio > 0.5:
+            logger.warning(f"⚠️ Target has {null_ratio*100:.1f}% missing values")
+    
+        return df
