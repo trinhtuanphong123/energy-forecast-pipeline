@@ -1,6 +1,7 @@
 """
 s3_connector.py
 🔌 S3 Connector - Đọc JSON (Bronze) và Ghi Parquet (Silver/Gold)
+Updated để hỗ trợ hourly files
 """
 import json
 import logging
@@ -17,7 +18,7 @@ class S3Connector:
     """
     Class để đọc và ghi dữ liệu từ/lên S3
     Hỗ trợ:
-    - Đọc JSON (Bronze layer)
+    - Đọc JSON (Bronze layer) - cả data.json và HH_30.json
     - Ghi Parquet (Silver/Gold layer)
     - List files với partition
     """
@@ -142,53 +143,80 @@ class S3Connector:
             logger.error(f"❌ Failed to read Parquet: {e}")
             raise
     
-    def list_partitions(
-        self,
-        prefix: str,
-        start_date: str,
-        end_date: str
-    ) -> List[str]:
+    def list_hourly_bronze_files(self, prefix: str, date: str) -> List[str]:
         """
-        List tất cả partitions trong khoảng thời gian
+        List tất cả hourly Bronze files (HH_30.json) của 1 ngày
         
         Args:
-            prefix: S3 prefix (ví dụ: "bronze/weather")
-            start_date: Start date (YYYY-MM-DD)
-            end_date: End date (YYYY-MM-DD)
+            prefix: S3 prefix (e.g., "bronze/weather")
+            date: Date string (YYYY-MM-DD)
         
         Returns:
-            List[str]: List các S3 keys
+            List[str]: Sorted list of S3 keys (HH_30.json files)
         """
-        logger.info(f"🔍 Listing partitions: {prefix} from {start_date} to {end_date}")
+        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        year = date_obj.year
+        month = str(date_obj.month).zfill(2)
+        day = str(date_obj.day).zfill(2)
         
-        # Generate date range
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        partition_prefix = f"{prefix}/year={year}/month={month}/day={day}/"
         
-        keys = []
-        for date in date_range:
-            year = date.year
-            month = str(date.month).zfill(2)
-            day = str(date.day).zfill(2)
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=partition_prefix
+            )
             
-            # Construct partition path
-            partition_prefix = f"{prefix}/year={year}/month={month}/day={day}/"
+            if 'Contents' not in response:
+                return []
             
-            # List objects in this partition
-            try:
-                response = self.s3_client.list_objects_v2(
-                    Bucket=self.bucket_name,
-                    Prefix=partition_prefix
-                )
-                
-                if 'Contents' in response:
-                    for obj in response['Contents']:
-                        keys.append(obj['Key'])
-            except ClientError as e:
-                logger.warning(f"⚠️ No data for {date.strftime('%Y-%m-%d')}: {e}")
-                continue
+            # Filter only hourly files (XX_30.json pattern)
+            hourly_files = [
+                obj['Key'] for obj in response['Contents']
+                if obj['Key'].endswith('_30.json')
+            ]
+            
+            return sorted(hourly_files)
+            
+        except ClientError as e:
+            logger.error(f"❌ Error listing hourly files: {str(e)}")
+            return []
+    
+    def list_daily_silver_files(self, prefix: str, year: int, month: int) -> List[str]:
+        """
+        List tất cả daily Silver files của 1 tháng
         
-        logger.info(f"✅ Found {len(keys)} files")
-        return keys
+        Args:
+            prefix: S3 prefix (e.g., "silver/weather")
+            year: Year
+            month: Month
+        
+        Returns:
+            List[str]: List of S3 keys (day=XX/data.parquet)
+        """
+        month_str = str(month).zfill(2)
+        partition_prefix = f"{prefix}/year={year}/month={month_str}/"
+        
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=partition_prefix
+            )
+            
+            if 'Contents' not in response:
+                return []
+            
+            # Filter day-level files (day=XX/data.parquet)
+            daily_files = [
+                obj['Key'] for obj in response['Contents']
+                if 'day=' in obj['Key'] and obj['Key'].endswith('/data.parquet')
+            ]
+            
+            return sorted(daily_files)
+            
+        except ClientError as e:
+            logger.error(f"❌ Error listing daily files: {str(e)}")
+            return []
     
     def check_file_exists(self, s3_key: str) -> bool:
         """
@@ -212,15 +240,17 @@ class S3Connector:
         self,
         prefix: str,
         date: str,
-        filename: str = "data.parquet"
+        filename: str = "data.parquet",
+        hour: str = None
     ) -> str:
         """
         Generate partition path theo Hive style
         
         Args:
-            prefix: S3 prefix (ví dụ: "silver/weather")
+            prefix: S3 prefix (e.g., "silver/weather")
             date: Date string (YYYY-MM-DD)
             filename: Tên file
+            hour: Hour string (HH) - for hourly files
         
         Returns:
             str: Full S3 key
@@ -230,11 +260,38 @@ class S3Connector:
         month = str(date_obj.month).zfill(2)
         day = str(date_obj.day).zfill(2)
         
-        return f"{prefix}/year={year}/month={month}/day={day}/{filename}"
+        if hour is not None:
+            # Hourly file: prefix/year=YYYY/month=MM/day=DD/HH_30.json
+            return f"{prefix}/year={year}/month={month}/day={day}/{hour}_30.json"
+        else:
+            # Daily file: prefix/year=YYYY/month=MM/day=DD/data.parquet
+            return f"{prefix}/year={year}/month={month}/day={day}/{filename}"
+    
+    def get_monthly_path(
+        self,
+        prefix: str,
+        year: int,
+        month: int,
+        filename: str = "data.parquet"
+    ) -> str:
+        """
+        Generate monthly file path
+        
+        Args:
+            prefix: S3 prefix
+            year: Year
+            month: Month
+            filename: File name
+        
+        Returns:
+            str: Full S3 key (e.g., prefix/year=2024/month=01/data.parquet)
+        """
+        month_str = str(month).zfill(2)
+        return f"{prefix}/year={year}/month={month_str}/{filename}"
     
     def delete_partition(self, prefix: str, date: str):
         """
-        Xóa toàn bộ partition của 1 ngày (để reprocess)
+        Xóa toàn bộ partition của 1 ngày
         
         Args:
             prefix: S3 prefix
@@ -266,3 +323,24 @@ class S3Connector:
             logger.info(f"✅ Deleted {len(objects_to_delete)} objects")
         else:
             logger.info(f"ℹ️ No objects to delete")
+    
+    def delete_file(self, s3_key: str) -> bool:
+        """
+        Xóa 1 file cụ thể
+        
+        Args:
+            s3_key: S3 key path
+        
+        Returns:
+            bool: True if successful
+        """
+        try:
+            self.s3_client.delete_object(
+                Bucket=self.bucket_name,
+                Key=s3_key
+            )
+            logger.debug(f"🗑️ Deleted {s3_key}")
+            return True
+        except ClientError as e:
+            logger.error(f"❌ Error deleting {s3_key}: {str(e)}")
+            return False
