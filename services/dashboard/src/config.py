@@ -18,7 +18,7 @@ class Config:
     AWS_REGION = os.getenv("AWS_REGION", "ap-southeast-1")
     
     # Data paths
-    GOLD_PREFIX = "gold/features"
+    GOLD_PREFIX = "gold/canonical"
     MODELS_PREFIX = "models"
     PREDICTIONS_PREFIX = "predictions"
     

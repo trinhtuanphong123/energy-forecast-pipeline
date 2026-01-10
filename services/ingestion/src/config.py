@@ -3,24 +3,22 @@ config.py
 ⚙️ Quản lý tập trung tất cả Config của Service Ingestion
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from datetime import datetime, timedelta, timezone
-
 VN_TZ = timezone(timedelta(hours=7))
-now_vn = datetime.now(VN_TZ)
-
 
 class Config:
     """Centralized configuration management"""
     
     # ============ MODE CONFIGURATION ============
-    # Chạy mode nào? BACKFILL (1 lần) hoặc DAILY (hàng ngày)
+    # Chạy mode nào? BACKFILL, HOURLY, hoặc COMPACTION
     @staticmethod
-    def get_mode() -> Literal["BACKFILL", "DAILY"]:
-        return os.getenv("MODE", "DAILY")
-
+    def get_mode() -> Literal["BACKFILL", "HOURLY", "COMPACTION"]:
+        mode = os.getenv("MODE", "HOURLY")
+        if mode not in ["BACKFILL", "HOURLY", "COMPACTION"]:
+            raise ValueError(f"Invalid MODE: {mode}. Must be BACKFILL, HOURLY, or COMPACTION")
+        return mode
     
     # ============ API KEYS (Secret) ============
     VISUAL_CROSSING_API_KEY = os.getenv("VISUAL_CROSSING_API_KEY")
@@ -61,17 +59,51 @@ class Config:
     # ============ DATE RANGE CONFIG ============
     @staticmethod
     def get_date_range():
-        now_vn = datetime.now(timezone(timedelta(hours=7)))
-
-        if Config.get_mode() == "BACKFILL":
+        """
+        Trả về date range dựa trên MODE
+        
+        Returns:
+            tuple: (start_date, end_date) format YYYY-MM-DD
+        """
+        now_vn = datetime.now(VN_TZ)
+        mode = Config.get_mode()
+        
+        if mode == "BACKFILL":
+            # Lấy toàn bộ dữ liệu lịch sử từ 2021-10-27 đến hôm qua
             start_date = "2021-10-27"
             end_date = (now_vn - timedelta(days=1)).strftime("%Y-%m-%d")
-        else:
+            
+        elif mode == "HOURLY":
+            # Chỉ lấy giờ trước đó của ngày hôm nay
+            # Không cần return date range, sẽ xử lý riêng
+            current_hour = now_vn.replace(minute=0, second=0, microsecond=0)
+            target_hour = current_hour - timedelta(hours=1)
+            return target_hour.strftime("%Y-%m-%d"), target_hour.strftime("%H")
+            
+        elif mode == "COMPACTION":
+            # Compact dữ liệu của ngày hôm qua
             yesterday = now_vn - timedelta(days=1)
             start_date = yesterday.strftime("%Y-%m-%d")
             end_date = start_date
-
+        
+        else:
+            raise ValueError(f"Unknown MODE: {mode}")
+        
         return start_date, end_date
+    
+    @staticmethod
+    def get_target_datetime():
+        """
+        Trả về datetime cụ thể cần xử lý (dùng cho HOURLY mode)
+        
+        Returns:
+            tuple: (date_str, hour_str) ví dụ ("2024-01-11", "13")
+        """
+        now_vn = datetime.now(VN_TZ)
+        current_hour = now_vn.replace(minute=0, second=0, microsecond=0)
+        target_hour = current_hour - timedelta(hours=1)
+        
+        return target_hour.strftime("%Y-%m-%d"), target_hour.strftime("%H")
     
     # ============ RETRY CONFIG ============
     MAX_RETRIES = 3
@@ -85,17 +117,18 @@ class Config:
         """Kiểm tra config có hợp lệ không"""
         errors = []
         
-        if not Config.VISUAL_CROSSING_API_KEY:
-            errors.append("❌ VISUAL_CROSSING_API_KEY không được set")
+        mode = Config.get_mode()
         
-        if not Config.ELECTRICITY_MAPS_API_KEY:
-            errors.append("❌ ELECTRICITY_MAPS_API_KEY không được set")
+        # API keys chỉ cần thiết cho BACKFILL và HOURLY
+        if mode in ["BACKFILL", "HOURLY"]:
+            if not Config.VISUAL_CROSSING_API_KEY:
+                errors.append("❌ VISUAL_CROSSING_API_KEY không được set")
+            
+            if not Config.ELECTRICITY_MAPS_API_KEY:
+                errors.append("❌ ELECTRICITY_MAPS_API_KEY không được set")
         
         if not Config.S3_BUCKET:
             errors.append("❌ S3_BUCKET không được set")
-        
-        if Config.MODE not in ["BACKFILL", "DAILY"]:
-            errors.append(f"❌ MODE không hợp lệ: {Config.MODE}. Phải là BACKFILL hoặc DAILY")
         
         if errors:
             raise ValueError("\n".join(errors))

@@ -9,7 +9,8 @@ from typing import Dict, Tuple, Optional, Any
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectFromModel
-import services.models.src.pipelines.wrappers.xgboost_pkg as xgb
+from xgboost import XGBRegressor
+
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class XGBoostModelWrapper:
         # steps.append(('selector', SelectFromModel(estimator, threshold='median')))
         
         # Step 3: XGBoost model
-        xgb_model = xgb.XGBRegressor(**self.hyperparameters)
+        xgb_model = XGBRegressor(**self.hyperparameters)
         steps.append(('model', xgb_model))
         
         pipeline = Pipeline(steps)
@@ -97,7 +98,7 @@ class XGBoostModelWrapper:
             logger.info(f"  Val samples: {len(X_val)}")
             
             # Transform validation data using scaler
-            X_val_scaled = self.pipeline.named_steps['scaler'].fit_transform(X_val)
+            X_val_scaled = self.pipeline.named_steps['scaler'].transform(X_val)
             
             fit_params['model__eval_set'] = [(X_val_scaled, y_val)]
             fit_params['model__verbose'] = False

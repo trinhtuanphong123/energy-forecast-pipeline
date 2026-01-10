@@ -8,6 +8,7 @@ import pickle
 import boto3
 from datetime import datetime
 from typing import Optional, Dict, Any
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,20 @@ class ModelRegistry:
         self.bucket_name = bucket_name
         self.models_prefix = models_prefix
         self.s3_client = boto3.client('s3')
+
+    def _make_json_safe(self, obj):
+        if isinstance(obj, dict):
+            return {k: self._make_json_safe(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_safe(v) for v in obj]
+        elif isinstance(obj, tuple):
+            return [self._make_json_safe(v) for v in obj]
+        elif isinstance(obj, (np.integer,)):
+            return int(obj)
+        elif isinstance(obj, (np.floating,)):
+            return float(obj)
+        else:
+            return obj
     
     def save_model(
         self,
@@ -44,6 +59,10 @@ class ModelRegistry:
         
         # Model path
         model_path = f"{self.models_prefix}/{model_type}/{version}"
+
+        safe_metadata = self._make_json_safe(metadata)
+        safe_metrics = self._make_json_safe(metrics)
+
         
         # Save model pickle
         model_key = f"{model_path}/model.pkl"
@@ -61,7 +80,7 @@ class ModelRegistry:
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=metadata_key,
-                Body=json.dumps(metadata, indent=2)
+                Body=json.dumps(safe_metadata, indent=2)
             )
             logger.info(f"  ✅ Saved metadata: {metadata_key}")
         
@@ -71,7 +90,7 @@ class ModelRegistry:
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=metrics_key,
-                Body=json.dumps(metrics, indent=2)
+                Body=json.dumps(safe_metrics, indent=2)
             )
             logger.info(f"  ✅ Saved metrics: {metrics_key}")
         

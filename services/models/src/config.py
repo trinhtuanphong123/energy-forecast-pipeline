@@ -27,7 +27,7 @@ class Config:
     
     # ============ TARGET VARIABLE ============
     # Target column trong Gold Canonical
-    TARGET_COLUMN = "total_load"  # Hoặc "carbon_intensity"
+    TARGET_COLUMN = "electricity_demand" # Hoặc "total_load"
     
     # Columns to exclude (metadata, không phải features)
     EXCLUDE_FEATURES = [

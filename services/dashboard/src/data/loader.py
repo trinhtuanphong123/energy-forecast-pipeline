@@ -17,7 +17,7 @@ class DataLoader:
     Load data từ S3 với Streamlit caching
     """
     
-    def __init__(self, bucket_name: str, region: str = "ap-southeast-1"):
+    def __init__(self, bucket_name: str, region: str = "ap-southeast-2"):
         self.bucket_name = bucket_name
         self.region = region
     
@@ -146,7 +146,7 @@ class DataLoader:
             # List parquet files
             s3_client = _self.get_s3_client(_self.region)
             
-            prefix = "gold/features/"
+            prefix = "gold/canonical/"
             
             # List all files in Gold layer
             response = s3_client.list_objects_v2(

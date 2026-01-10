@@ -75,9 +75,10 @@ class DataSplitter:
         logger.info(f"  Test: {len(X_test)} samples")
         
         if timestamps is not None:
-            logger.info(f"  Train period: {ts_train[0]} to {ts_train[-1]}")
-            logger.info(f"  Val period: {ts_val[0]} to {ts_val[-1]}")
-            logger.info(f"  Test period: {ts_test[0]} to {ts_test[-1]}")
+            logger.info(f" Train period: {ts_train.iloc[0]} to {ts_train.iloc[-1]}")
+            logger.info(f"  Val period: {ts_val.iloc[0]} to {ts_val.iloc[-1]}")
+            logger.info(f"  Test period: {ts_test.iloc[0]} to {ts_test.iloc[-1]}")
+
         
         return X_train, X_val, X_test, y_train, y_val, y_test, ts_train, ts_val, ts_test
     
