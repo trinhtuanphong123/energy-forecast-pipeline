@@ -262,7 +262,11 @@ class S3Connector:
         
         if hour is not None:
             # Hourly file: prefix/year=YYYY/month=MM/day=DD/HH_30.json
-            return f"{prefix}/year={year}/month={month}/day={day}/{hour}_30.json"
+            # return f"{prefix}/year={year}/month={month}/day={day}/{hour}_30.json"
+            # For Bronze (JSON): use .json, for Silver/Gold (Parquet): use .parquet
+            # Caller should pass the correct filename
+            ext = filename.split('.')[-1] if '.' in filename else 'parquet'
+            return f"{prefix}/year={year}/month={month}/day={day}/{hour}_30.{ext}"
         else:
             # Daily file: prefix/year=YYYY/month=MM/day=DD/data.parquet
             return f"{prefix}/year={year}/month={month}/day={day}/{filename}"
@@ -344,3 +348,31 @@ class S3Connector:
         except ClientError as e:
             logger.error(f"❌ Error deleting {s3_key}: {str(e)}")
             return False
+
+    def list_hourly_silver_files(self, prefix: str, date: str) -> List[str]:
+    
+        """
+        List all hourly Silver files (HH_30.parquet) for a given day
+        """
+        date_obj = datetime.strptime(date, "%Y-%m-%d")
+        year = date_obj.year
+        month = str(date_obj.month).zfill(2)
+        day = str(date_obj.day).zfill(2)
+    
+        partition_prefix = f"{prefix}/year={year}/month={month}/day={day}/"
+    
+        response = self.s3_client.list_objects_v2(
+            Bucket=self.bucket_name,
+            Prefix=partition_prefix
+        )
+    
+        if 'Contents' not in response:
+            return []
+    
+        # Filter hourly parquet files (XX_30.parquet pattern)
+        hourly_files = [
+            obj['Key'] for obj in response['Contents']
+            if obj['Key'].endswith('_30.parquet')
+        ]
+    
+        return sorted(hourly_files)

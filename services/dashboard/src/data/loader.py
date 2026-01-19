@@ -161,7 +161,7 @@ class DataLoader:
             # Filter parquet files
             parquet_keys = [
                 obj['Key'] for obj in response['Contents']
-                if obj['Key'].endswith('.parquet')
+                if obj['Key'].endswith('/data.parquet')
             ]
             
             # Load latest file (for demo)
@@ -215,3 +215,35 @@ class DataLoader:
                 return df[col].iloc[-1]
         
         return None
+
+    @st.cache_data(ttl=300)
+    def load_latest_predictions(_self) -> Optional[Dict]:
+        """Load latest predictions with new format support"""
+        try:
+            s3_client = _self.get_s3_client(_self.region)
+            key = "predictions/latest/predictions.json"
+            
+            response = s3_client.get_object(Bucket=_self.bucket_name, Key=key)
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            
+            # Handle new single-prediction format from Models PREDICT mode
+            if 'predicted_value' in data:
+                # Convert to array format for compatibility
+                return {
+                    'predictions': [{
+                        'datetime': data.get('prediction_for'),
+                        'predicted': data.get('predicted_value'),
+                        'confidence_lower': data.get('confidence_lower'),
+                        'confidence_upper': data.get('confidence_upper')
+                    }],
+                    'model_type': data.get('model_type'),
+                    'generated_at': data.get('generated_at'),
+                    'based_on_data_until': data.get('based_on_data_until')
+                }
+            
+            # Legacy format: return as-is
+            return data
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load predictions: {e}")
+            return None

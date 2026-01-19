@@ -134,13 +134,89 @@ def main():
             logger.info(f"Duration: {results['duration_seconds']:.1f}s")
             
             sys.exit(0)
+
+        elif Config.MODE == "PREDICT":
+            logger.info("=" * 70)
+            logger.info("MODE: PREDICT")
+            logger.info("=" * 70)
+    
+            from prediction.predictor import ModelPredictor
+            from datetime import datetime, timedelta, timezone
+    
+            VN_TZ = timezone(timedelta(hours=7))
+    
+            # Get target datetime (predict for next hour based on latest data)
+            now_vn = datetime.now(VN_TZ)
+            current_hour = now_vn.replace(minute=0, second=0, microsecond=0)
+            data_hour = current_hour - timedelta(hours=1)  # Latest available data
+    
+            target_date = data_hour.strftime("%Y-%m-%d")
+            target_hour = data_hour.strftime("%H")
+    
+            logger.info(f"Using data up to: {target_date} {target_hour}:00")
+    
+            # Initialize components
+            data_loader = DataLoader(
+                bucket_name=Config.S3_BUCKET,
+                canonical_prefix=Config.GOLD_CANONICAL_PREFIX
+            )
+    
+            feature_strategy = FeatureStrategyFactory.create_strategy(
+                strategy_type=Config.FEATURE_STRATEGY,
+                config=Config.get_feature_config()
+            )
+    
+            registry = ModelRegistry(
+                bucket_name=Config.S3_BUCKET,
+                models_prefix=Config.MODELS_PREFIX
+            )
+    
+            predictor = ModelPredictor(config=Config)
+    
+            # Generate prediction
+            result = predictor.predict(
+                data_loader=data_loader,
+                feature_strategy=feature_strategy,
+                model_registry=registry,
+                target_datetime=(target_date, target_hour)
+            )
+    
+            # Save prediction to S3
+            import json
+            import boto3
+    
+            s3_client = boto3.client('s3')
+    
+            # Save to predictions/latest/
+            latest_key = f"{Config.PREDICTIONS_PREFIX}/latest/predictions.json"
+            s3_client.put_object(
+                Bucket=Config.S3_BUCKET,
+                Key=latest_key,
+                Body=json.dumps(result, indent=2),
+                ContentType='application/json'
+            )
+            logger.info(f"✅ Saved to s3://{Config.S3_BUCKET}/{latest_key}")
+        
+            # Also save to dated path
+            dated_key = f"{Config.PREDICTIONS_PREFIX}/{target_date}/{target_hour}_30.json"
+            s3_client.put_object(
+                Bucket=Config.S3_BUCKET,
+                Key=dated_key,
+                Body=json.dumps(result, indent=2),
+                ContentType='application/json'
+            )
+            logger.info(f"✅ Saved to s3://{Config.S3_BUCKET}/{dated_key}")
+    
+            logger.info("=" * 70)
+            logger.info("🎉 PREDICTION COMPLETED")
+            logger.info("=" * 70)
+            logger.info(f"Predicted value: {result['predicted_value']:.2f}")
+            logger.info(f"For: {result['prediction_for']}")
+    
+            sys.exit(0)
         
         elif Config.MODE == "INCREMENTAL":
             logger.error("❌ INCREMENTAL mode not yet implemented")
-            sys.exit(1)
-        
-        elif Config.MODE == "PREDICT":
-            logger.error("❌ PREDICT mode not yet implemented")
             sys.exit(1)
         
         else:

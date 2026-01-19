@@ -54,7 +54,7 @@ class DataLoader:
         
         parquet_files = [
             obj['Key'] for obj in response['Contents']
-            if obj['Key'].endswith('.parquet')
+            if obj['Key'].endswith('/data.parquet')
         ]
         
         logger.info(f"  Found {len(parquet_files)} parquet files")
@@ -187,3 +187,92 @@ class DataLoader:
             }
         
         return info
+
+    
+    def load_recent_hourly_gold(
+        self,
+        end_date: str,
+        end_hour: str,
+        hours: int = 168
+        ) -> pd.DataFrame:
+        """
+        Load recent N hours of Gold data (including hourly files)
+    
+        This supports both:
+        - Daily compacted files (data.parquet)
+        - Hourly files (HH_30.parquet)
+    
+        Args:
+            end_date: End date (YYYY-MM-DD)
+            end_hour: End hour (HH)
+            hours: Number of hours to load
+    
+        Returns:
+            pd.DataFrame: Combined historical data
+        """
+        logger.info(f"📥 Loading {hours} hours of Gold data until {end_date} {end_hour}:00")
+    
+        from datetime import datetime, timedelta
+    
+        end_datetime = datetime.strptime(f"{end_date} {end_hour}", "%Y-%m-%d %H")
+        start_datetime = end_datetime - timedelta(hours=hours)
+    
+        dfs = []
+        current = start_datetime
+    
+        while current <= end_datetime:
+            date_str = current.strftime("%Y-%m-%d")
+            hour_str = current.strftime("%H")
+            year = current.year
+            month = str(current.month).zfill(2)
+            day = str(current.day).zfill(2)
+        
+            # Try hourly file first
+            hourly_key = f"{self.canonical_prefix}/year={year}/month={month}/day={day}/{hour_str}_30.parquet"
+        
+            # Try daily file as fallback
+            daily_key = f"{self.canonical_prefix}/year={year}/month={month}/day={day}/data.parquet"
+        
+            try:
+                # Check hourly file
+                self.s3_client.head_object(Bucket=self.bucket_name, Key=hourly_key)
+                obj = self.s3_client.get_object(Bucket=self.bucket_name, Key=hourly_key)
+                df = pd.read_parquet(io.BytesIO(obj['Body'].read()))
+                dfs.append(df)
+                current += timedelta(hours=1)
+                continue
+            except:
+                pass
+        
+            try:
+                # Fall back to daily file (only once per day)
+                if hour_str == "00":  # Only load daily file once
+                    self.s3_client.head_object(Bucket=self.bucket_name, Key=daily_key)
+                    obj = self.s3_client.get_object(Bucket=self.bucket_name, Key=daily_key)
+                    df = pd.read_parquet(io.BytesIO(obj['Body'].read()))
+                    dfs.append(df)
+            except:
+                pass
+        
+            current += timedelta(hours=1)
+    
+        if not dfs:
+            raise ValueError(f"No Gold data found for last {hours} hours")
+    
+        combined = pd.concat(dfs, ignore_index=True)
+    
+        # De-duplicate and sort
+        if 'datetime' in combined.columns:
+            combined['datetime'] = pd.to_datetime(combined['datetime'])
+            combined = combined.drop_duplicates(subset=['datetime'])
+            combined = combined.sort_values('datetime').reset_index(drop=True)
+        
+        # Filter to exact time range
+        combined = combined[
+            (combined['datetime'] >= start_datetime) & 
+            (combined['datetime'] <= end_datetime)
+        ]
+    
+        logger.info(f"✅ Loaded {len(combined)} rows")
+    
+        return combined

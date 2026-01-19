@@ -168,7 +168,7 @@ class CanonicalMerger:
             )
             
             # Fill remaining with forward/backward fill
-            df[col] = df[col].fillna(method='ffill').fillna(method='bfill')
+            df[col] = df[col].ffill().bfill()
         
         return df
     

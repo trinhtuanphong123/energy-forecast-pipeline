@@ -251,6 +251,69 @@ def process_silver_to_canonical(
         logger.error(f"❌ Failed Canonical Table: {e}", exc_info=True)
         return False
 
+
+
+def process_hourly_silver_to_gold(
+    s3: S3Connector,
+    merger: CanonicalMerger,
+    date: str,
+    hour: str
+    ) -> bool:
+    """
+    Create hourly Gold Canonical from hourly Silver files
+    
+    Args:
+    s3: S3Connector
+    merger: CanonicalMerger
+    date: Date string (YYYY-MM-DD)
+    hour: Hour string (HH)
+    
+    Returns:
+        bool: Success status
+    """
+    try:
+        logger.info(f"🌟 Creating hourly Gold: {date} {hour}:00")
+        
+        # Read Weather Silver (hourly)
+        weather_key = f"{Config.WEATHER_SILVER_PATH}/year={date[:4]}/month={date[5:7]}/day={date[8:10]}/{hour}_30.parquet"
+        
+        if not s3.check_file_exists(weather_key):
+            logger.warning(f"⚠️ Weather Silver not found: {weather_key}")
+            return False
+        
+        weather_df = s3.read_parquet(weather_key)
+        
+        # Read Electricity Silver (hourly)
+        elec_key = f"{Config.ELECTRICITY_SILVER_PATH}/year={date[:4]}/month={date[5:7]}/day={date[8:10]}/{hour}_30.parquet"
+        
+        if not s3.check_file_exists(elec_key):
+            logger.warning(f"⚠️ Electricity Silver not found: {elec_key}")
+            return False
+        
+        elec_df = s3.read_parquet(elec_key)
+        
+        # Create Canonical (merge weather + electricity)
+        canonical_df = merger.merge(weather_df, elec_df)
+        merger.validate_canonical(canonical_df)
+        
+        # Write hourly Gold file
+        gold_key = f"{Config.GOLD_CANONICAL_PATH}/year={date[:4]}/month={date[5:7]}/day={date[8:10]}/{hour}_30.parquet"
+        
+        s3.write_parquet(
+            canonical_df,
+            gold_key,
+            compression=Config.PARQUET_COMPRESSION
+        )
+        
+        logger.info(f"✅ Hourly Gold: {len(canonical_df)} rows → {gold_key}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Failed hourly Gold for {date} {hour}:00: {e}", exc_info=True)
+        return False
+
+    
+
 # ============ MODE HANDLERS ============
 
 def run_backfill_mode():
@@ -331,7 +394,7 @@ def run_hourly_mode():
     
     Flow:
     1. Bronze (HH_30.json) → Silver (HH_30.parquet) for target hour
-    2. NO Gold creation (chờ compaction)
+    2. Create hourly Gold Canonical file
     """
     logger.info("=" * 70)
     logger.info("MODE: HOURLY")
@@ -358,10 +421,24 @@ def run_hourly_mode():
         s3, electricity_cleaner, target_date, target_hour
     )
     
+    # ============ NEW: CREATE HOURLY GOLD ============
+    logger.info("=" * 70)
+    logger.info("STEP 2: SILVER → GOLD (Hourly Canonical)")
+    logger.info("=" * 70)
+   
+    canonical_merger = CanonicalMerger()
+    gold_success = process_hourly_silver_to_gold(
+       s3, canonical_merger, target_date, target_hour
+    )
+    
     return {
         "weather": weather_success,
-        "electricity": electricity_success
+
+        "electricity": electricity_success,
+        "gold": gold_success
     }
+
+    
 
 def run_compaction_daily_mode():
     """
@@ -397,9 +474,17 @@ def run_compaction_daily_mode():
     
     canonical_success = process_silver_to_canonical(s3, canonical_merger, [target_date])
     
+    # Step 3: Delete hourly Gold files (daily now exists)
+    logger.info("=" * 70)
+    logger.info("STEP 3: CLEANUP HOURLY GOLD FILES")
+    logger.info("=" * 70)
+    
+    gold_cleanup = compactor.compact_hourly_gold(target_date)
+    
     return {
         "compaction": results,
-        "canonical": canonical_success
+        "canonical": canonical_success,
+        "gold_cleanup": gold_cleanup
     }
 
 def run_compaction_monthly_mode():

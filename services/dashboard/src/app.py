@@ -146,6 +146,21 @@ def main():
             if metadata:
                 trained_at = metadata.get('training', {}).get('completed_at', 'N/A')
                 st.caption(f"📅 Model last trained: {trained_at}")
+
+            # Display last update time
+            if predictions:
+                generated_at = predictions.get('generated_at')
+                if generated_at:
+                    from datetime import datetime
+                    gen_time = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+                    age_minutes = (datetime.now(gen_time.tzinfo) - gen_time).total_seconds() / 60
+        
+                    if age_minutes < 60:
+                        st.success(f"✅ Predictions are fresh (updated {age_minutes:.0f} min ago)")
+                    elif age_minutes < 180:
+                        st.warning(f"⚠️ Predictions may be stale (updated {age_minutes:.0f} min ago)")
+                    else:
+                        st.error(f"❌ Predictions are old (updated {age_minutes/60:.1f} hours ago)")
             
             st.markdown("---")
             
@@ -164,6 +179,12 @@ def main():
             st.caption("Current weather conditions affecting electricity demand")
             
             if historical is not None and not historical.empty:
+
+                # Derive time features from datetime
+                if 'datetime' in historical.columns:
+                    historical['is_weekend'] = pd.to_datetime(historical['datetime']).dt.dayofweek.isin([5, 6]).astype(int)
+                    historical['hour'] = pd.to_datetime(historical['datetime']).dt.hour
+
                 col1, col2, col3, col4 = st.columns(4)
                 
                 latest = historical.iloc[-1]
@@ -179,12 +200,13 @@ def main():
                     st.metric("💧 Humidity", f"{hum:.0f}%", delta=hum_status)
                 
                 with col3:
-                    weekend = latest.get('is_weekend', 0)
+                    weekend = latest.get('is_weekend', 0) if 'is_weekend' in latest else 0
                     st.metric("📅 Day Type", "Weekend" if weekend else "Weekday")
                 
                 with col4:
-                    holiday = latest.get('is_holiday', 0)
-                    st.metric("🎉 Holiday", "Yes" if holiday else "No")
+                    hour = latest.get('hour', 0) if 'hour' in latest else 0
+                    st.metric("🕐 Hour", f"{hour:02d}:00")
+
             else:
                 st.info("No historical weather data available")
         
@@ -246,8 +268,8 @@ def main():
             
             st.markdown("---")
             
-            # Feature importance
-            feature_importance = predictions.get('feature_importance', {})
+            # Feature importance is stored in metrics.json, not predictions
+            feature_importance = metrics.get('feature_importance', {})
             if feature_importance:
                 render_feature_importance(feature_importance)
             else:

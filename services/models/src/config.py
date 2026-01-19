@@ -10,16 +10,24 @@ class Config:
     
     # ============ MODE CONFIGURATION ============
     MODE: Literal["FULL_TRAIN", "INCREMENTAL", "PREDICT"] = os.getenv(
-        "MODE", "FULL_TRAIN"
+    "MODE", "FULL_TRAIN"
     )
-    
+    # ============ PREDICTION CONFIGURATION ============
+    # Path for predictions output
+    PREDICTIONS_PREFIX = "predictions"
+ 
+    # Số giờ historical data cần để tạo features (phụ thuộc vào lag/rolling)
+    # Với lag_periods = [1, 2, 3, 24, 168] và rolling_windows = [3, 6, 12, 24]
+    # Cần ít nhất 168 giờ (7 ngày) historical data
+    MIN_HISTORICAL_HOURS = 168
+
     # ============ S3 CONFIGURATION ============
     S3_BUCKET = os.getenv("S3_BUCKET", "vietnam-energy-data")
     
     # Data paths - ĐỌC TỪ GOLD CANONICAL (đã có features)
     GOLD_CANONICAL_PREFIX = "gold/canonical"  # Output từ Processing service
     MODELS_PREFIX = "models"
-    PREDICTIONS_PREFIX = "predictions"
+    # PREDICTIONS_PREFIX = "predictions"
     
     # ============ MODEL CONFIGURATION ============
     MODEL_TYPE = os.getenv("MODEL_TYPE", "xgboost")
@@ -107,6 +115,7 @@ class Config:
     # ============ PERFORMANCE ============
     MAX_MEMORY_GB = 4
     BATCH_SIZE = 10000
+
     
     @staticmethod
     def get_feature_config() -> Dict[str, Any]:

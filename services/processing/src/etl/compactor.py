@@ -228,6 +228,70 @@ class ProcessingCompactor:
         except Exception as e:
             logger.error(f"❌ Electricity Silver compaction failed: {str(e)}")
             raise
+
+
+    def compact_hourly_gold(self, date: str) -> Dict[str, Any]:
+        """
+        Compact hourly Gold files (HH_30.parquet) for a given day
+    
+        DELETE hourly Gold files after daily file exists.
+        (The daily Gold is created by process_silver_to_canonical)
+    
+        Args:
+            date: Date string (YYYY-MM-DD)
+    
+        Returns:
+            dict: Stats
+        """
+        logger.info(f"🗜️ Compact hourly Gold for {date}")
+    
+        date_obj = pd.to_datetime(date)
+        year = date_obj.year
+        month = str(date_obj.month).zfill(2)
+        day = str(date_obj.day).zfill(2)
+    
+        partition_prefix = f"{Config.GOLD_CANONICAL_PATH}/year={year}/month={month}/day={day}/"
+    
+        try:
+            response = self.s3.s3_client.list_objects_v2(
+                Bucket=self.s3.bucket_name,
+                Prefix=partition_prefix
+            )
+        
+            if 'Contents' not in response:
+                return {"status": "no_files", "files_deleted": 0}
+        
+            # Find hourly files (HH_30.parquet)
+            hourly_files = [
+                obj['Key'] for obj in response['Contents']
+                if '_30.parquet' in obj['Key']
+            ]
+        
+            if not hourly_files:
+                return {"status": "no_hourly_files", "files_deleted": 0}
+        
+            # Check if daily file exists
+            daily_key = f"{partition_prefix}data.parquet"
+            if not self.s3.check_file_exists(daily_key):
+                logger.warning(f"⚠️ Daily Gold file not found, skip deleting hourly files")
+                return {"status": "daily_not_found", "files_deleted": 0}
+        
+            # Delete hourly files (daily file now exists)
+            deleted_count = 0
+            for file_key in hourly_files:
+                if self.s3.delete_file(file_key):
+                    deleted_count += 1
+        
+            logger.info(f"🗑️ Deleted {deleted_count}/{len(hourly_files)} hourly Gold files")
+        
+            return {
+                "status": "success",
+                "files_deleted": deleted_count
+            }
+        
+        except Exception as e:
+            logger.error(f"❌ Error compacting hourly Gold: {e}")
+            return {"status": "error", "error": str(e)}
     
     def compact_monthly_gold(self, year: int, month: int) -> Dict[str, Any]:
         """

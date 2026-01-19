@@ -51,6 +51,12 @@ class XGBoostFeatureStrategy(BaseFeatureStrategy):
         
         df_features = df.copy()
         self.created_features = []
+
+        # === ADD THIS SECTION ===
+        # 0. TIME-BASED FEATURES (extract from datetime)
+        df_features = self._create_time_features(df_features)
+        # === END ADD ===
+
         
         # Identify numeric columns for feature engineering
         numeric_cols = df_features.select_dtypes(include=[np.number]).columns.tolist()
@@ -172,3 +178,42 @@ class XGBoostFeatureStrategy(BaseFeatureStrategy):
                 'interactions_enabled': self.create_interactions
             }
         }
+
+
+    def _create_time_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract time-based features from datetime column
+        
+        Creates: hour, day_of_week, month, is_weekend, hour_sin, hour_cos
+        """
+        logger.info("  Creating time-based features...")
+    
+        if 'datetime' not in df.columns:
+            logger.warning("⚠️ No datetime column found, skipping time features")
+            return df
+    
+        dt = pd.to_datetime(df['datetime'])
+    
+        # Basic time features
+        df['hour'] = dt.dt.hour
+        df['day_of_week'] = dt.dt.dayofweek
+        df['day_of_month'] = dt.dt.day
+        df['month'] = dt.dt.month
+    
+        # Binary features
+        df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
+    
+        # Cyclical encoding (sin/cos for hour to capture periodicity)
+        df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+        df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+    
+        # Track created features
+        time_features = [
+            'hour', 'day_of_week', 'day_of_month', 'month',
+            'is_weekend', 'hour_sin', 'hour_cos'
+        ]
+        self.created_features.extend(time_features)
+    
+        logger.info(f"    ✅ Created {len(time_features)} time features")
+    
+        return df
